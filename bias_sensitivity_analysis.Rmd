@@ -1,0 +1,790 @@
+---
+title: "bias and sensitivity"
+author: "Gabriel Melhado"
+date: "2025-09-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#Load packages
+pacman::p_load(devtools, tidyverse, metafor, patchwork, R.rsp, orchaRd, emmeans,
+               ape, phytools, flextable, here, kableExtra, magrittr, metagear, rotl,
+               clubSandwich, MuMIn, ggsankey)
+```
+
+```{r}
+#Load Data
+data <- read.csv(here("data", "data_pharma_immune.csv"))
+
+```
+
+```{r}
+## *Calculate effect sizes and sampling variances*
+# Make sure all data is numeric 
+data <- data  %>%
+  mutate(
+    treatment_mean = as.numeric(treatment_mean),
+    treatment_sd = as.numeric(treatment_sd),
+    treatment_n = as.numeric(treatment_n),
+    control_mean = as.numeric(control_mean),
+    control_sd = as.numeric(control_sd),
+    control_n = as.numeric(control_n)
+  )
+
+# Calculate log response ratio (lnRR)
+lnRR <- escalc(measure = "ROM", 
+               m1i = treatment_mean, sd1i = treatment_sd, n1i = treatment_n, 
+               m2i = control_mean, sd2i = control_sd, n2i = control_n, 
+               data = data)
+
+
+# Calculate log coefficient variation ratio (lnCVR)
+lnCVR <- escalc(measure = "CVR", 
+                m1i = treatment_mean, sd1i = treatment_sd, n1i = treatment_n, 
+                m2i = control_mean, sd2i = control_sd, n2i = control_n, 
+                data = data)
+
+# Calculate the standardised mean difference for sensitivity analysis
+SMD <- escalc(measure = "SMD", 
+              m1i = treatment_mean, sd1i = treatment_sd, n1i = treatment_n, 
+              m2i = control_mean, sd2i = control_sd, n2i = control_n, 
+              data = data)
+
+# Calculate log variation ratio (lnVR)
+lnVR <- escalc(measure = "VR", 
+               m1i = treatment_mean, sd1i = treatment_sd, n1i = treatment_n, 
+               m2i = control_mean, sd2i = control_sd, n2i = control_n, 
+               data = data)
+
+# Summary statistics of sampling variances
+sampling_variance_summaries <- list(
+  lnRR = summary(lnRR$vi),
+  lnCVR = summary(lnCVR$vi),
+  SMD = summary(SMD$vi),
+  VR = summary(lnVR$vi)
+)
+
+# Calculate precision for each effect size estimate with checks
+lnRR$precision <- ifelse(lnRR$vi > 0, 1 / sqrt(lnRR$vi), NA)
+lnCVR$precision <- ifelse(lnCVR$vi > 0, 1 / sqrt(lnCVR$vi), NA)
+SMD$precision <- ifelse(SMD$vi > 0, 1 / sqrt(SMD$vi), NA)
+lnVR$precision <- ifelse(lnVR$vi > 0, 1 / sqrt(lnVR$vi), NA)
+
+
+# Merge the data
+effect_size_metrics_set <- data.frame(
+  lnRR = lnRR$yi, lnRRv = lnRR$vi, lnRR_precision = lnRR$precision,
+  lnVR = lnVR$yi, lnVRv = lnVR$vi, lnVR_precision = lnVR$precision,
+  lnCVR = lnCVR$yi, lnCVRv = lnCVR$vi, lnCVR_precision = lnCVR$precision,
+  SMD = SMD$yi, SMDv = SMD$vi, SMD_precision = SMD$precision,
+  control_imputed = data$control_sd, treatment_imputed = data$treatment_sd
+)
+
+# Bind the effect size metrics set to the main data
+data <- cbind(data, effect_size_metrics_set)
+
+# Select specific columns including the new precision columns
+effect_size_metrics_set_kable <- data[, which(colnames(data) %in% c(
+  "study_id","assay_id", "species_english", "pharmaceutical", "immune_trait_category",
+  "lnRR", "lnRRv", "lnRR_precision", 
+  "lnCVR", "lnCVRv", "lnCVR_precision", 
+  "lnVR", "lnVRv", "lnVR_precision", 
+  "SMD", "SMDv", "SMD_precision", 
+  "control_imputed", "treatment_imputed"
+))] %>% dfround(digits = 3)
+
+# Table of the effect sizes
+kable(effect_size_metrics_set_kable, "html") %>%
+  kable_styling("bordered", position = "left") %>%
+  scroll_box(width = "250%", height = "800px")
+
+```
+
+```{r}
+## *Variance covariance matrices*
+#To account for the dependency of effect sizes estimates due to being in the same exposure group (cohort) we constructed a series of vcv matrices.
+
+#------------------------------lnRR------------------------------#
+data<- data[!is.na(data$lnRRv),] 
+lnRRVCV <- metafor::vcalc(vi = lnRRv, cluster = exposure_id, obs = assay_id, data = data, rho = 0.5)
+lnRRVCV <- lnRRVCV + diag(1e-5, nrow(lnRRVCV))
+
+
+#------------------------------lnVR------------------------------#
+data<- data[!is.na(data$lnVRv),]
+lnVRVCV <- metafor::vcalc(vi = lnVRv, cluster = exposure_id, obs = assay_id, data = data, rho = 0.5)
+lnVRVCV <- lnVRVCV + diag(1e-5, nrow(lnVRVCV))
+```
+
+```{r}
+# **Intercept only meta-analysis models**
+## *Intercept only model (lnRR)*
+# Model
+lnRR_intercept_only <- rma.mv(yi = lnRR,
+                              V = lnRRVCV,
+                              random = list(~1 | study_id,
+                                            ~1 | assay_id),
+                              method = "REML",
+                              test = "t", 
+                              data = data,
+                              sparse = T)
+
+```
+
+```{r}
+## *Intercept only model (lnVR)*
+# Model
+lnVR_intercept_only <- rma.mv(yi = lnVR,
+                              V = lnVRVCV,
+                              random = list(~1 | study_id,
+                                            ~1 | assay_id),
+                              method = "REML",
+                              test = "t", 
+                              data = data,
+                              sparse = T)
+
+
+```
+
+
+```{r}
+# **Publication bias**
+
+## *Figure 8*
+#A funnel plot illustrating the distribution of study effect sizes in the meta-analysis. The symmetry of the plot suggests the absence of publication bias.
+# Set up a PNG device with desired dimensions and resolution
+# png(filename = "funnel_plot.png", width = 800, height = 600, res = 150)
+
+# Create the funnel plot with gray points
+funnel_fig <- funnel(
+  lnRR_intercept_only,
+  yaxis = "seinv",
+  level = c(90, 95),
+  shade = c("white", "gray30"),
+  back = "#EBEBEB",
+  legend = FALSE,
+  ylab = "Precision (1/SE)",
+  cex.lab = 1.5,
+  digits = 1,
+  xlim = c(-5, 5),
+  pch = 21,         
+  col = "gray",  
+  bg = "black"     
+)
+
+# fig_funnel <- recordPlot()
+# invisible(dev.off())
+
+print(funnel_fig)
+```
+
+```{r}
+#Egger's Regression
+# Model
+eggers_regression <- rma.mv(yi = lnRR,
+                            V = lnRRVCV,
+                            random = list(~1 | study_id,
+                                          ~1 | assay_id),
+                            mods = ~sqrt(lnRRv) ,
+                            method = "REML",
+                            test = "t", 
+                            data = data,
+                            sparse = T)
+
+# Summary
+summary(eggers_regression)
+
+#Trim-and-fill Analysis
+trimfill_model <- rma(yi = lnRR,
+                 vi = lnRRv,
+                 method = "REML",
+                 data = data)
+
+tf <- trimfill(trimfill_model)
+summary(tf)
+funnel(tf)
+
+```
+
+```{r}
+### *Figure 9*
+#A plot showing the moderating effect of standard error on lnRR. The thick black lines show the prediction from the uni-moderator models with their associated 95% confidence interval (darker shaded area) and 95% prediction interval (lighter shaded area).
+
+# Prepare data for Egger's regression plot
+egger_pred <- predict.rma(eggers_regression)
+data <- data %>%
+  mutate(
+    fit = egger_pred$pred,
+    ci.lb = egger_pred$ci.lb,
+    ci.ub = egger_pred$ci.ub,
+    pr.lb = egger_pred$cr.lb,
+    pr.ub = egger_pred$cr.ub
+  )
+
+#Figure 9
+# Create Egger's regression plot
+egger_fig <- ggplot(data, aes(x = sqrt(lnRRv), y = lnRR)) +
+  geom_ribbon(aes(ymin = pr.lb, ymax = pr.ub), alpha = 0.1, fill = "gray") +
+  geom_ribbon(aes(ymin = ci.lb, ymax = ci.ub), alpha = 0.3, fill = "gray") +
+  geom_point(size = 2, shape = 21, alpha = 0.7, fill = RColorBrewer::brewer.pal(n = 8, name = "Dark2")[1], col = "gray25", stroke = 1) +
+  geom_line(aes(y = fit), size = 1.2) +
+  labs(x = "Standard Error", y = "lnRR") +
+  theme_bw() +
+  geom_hline(yintercept = 0, linetype = 2, colour = "black", alpha = 0.5) +
+  theme(
+    text = element_text(size = 18, colour = "black", hjust = 0.5),
+    legend.text = element_text(size = 14),
+    legend.position = c(0, 0),
+    legend.justification = c(0, 0),
+    legend.background = element_blank(),
+    legend.direction = "horizontal",
+    legend.title = element_text(size = 15),
+    panel.border = element_rect(colour = "black", fill = NA, size = 1.2)
+  )
+
+print(egger_fig)
+
+```
+
+```{r}
+## *Time lag bias*
+# Model
+time_lag_bias_model <- rma.mv(yi = lnRR,
+                              V = lnRRVCV,
+                              random = list(~1 | study_id,
+                                            ~1 | assay_id),
+                              mods = ~ year ,
+                              method = "REML",
+                              test = "t", 
+                              data = data,
+                              sparse = T)
+
+# Summary stats
+summary(time_lag_bias_model)
+
+lnRR_mod_time_lag_results <- mod_results(time_lag_bias_model, mod = "year", data = data, group = "study_id")  
+
+
+r2_lnRR_time_lag <- r2_ml(time_lag_bias_model, data)
+
+
+# Calculate R^2 value
+r2_lnRR_time_lag <- r2_ml(time_lag_bias_model, data)
+
+r2_lnRR_time_lag
+# Set minimum year for x-axis limit
+min_year <- min(data$year, na.rm = TRUE)
+
+```
+
+```{r}
+## *Figure 10*
+#A bubble plot showing the moderating effect of publication year on lnRR. The thick black lines show the prediction from the uni-moderator models with their associated 95% confidence interval (red dotted line) and 95% prediction interval (black dotted line).
+
+# Create bubble plot and save as ggplot object
+time_lag_bias <- bubble_plot(
+  lnRR_mod_time_lag_results,
+  mod = "year",
+  group = "study_id",
+  
+  x = "pub_year",
+  y = "lnRR",
+  est.lwd = 1,
+  legend.pos = "bottom.right",
+  k.pos = "bottom.left",
+  ci.col = "red",
+  pi.col = "black",
+  est.col = "black",
+  g = TRUE
+) +
+  annotate(
+    geom = "text",
+    x = min_year + 2,
+    y = max(data$lnRR, na.rm = TRUE) + 0.2,
+    label = paste0("italic(R)^{2} ==", round(r2_lnRR_time_lag[1], 5)),
+    color = "black",
+    parse = TRUE,
+    size = 4
+  ) +
+  geom_point(size = 2, color = "gray25", fill = "blue", shape = 21, alpha = 0.7, stroke = 1) +
+  geom_line(color = "blue", size = 1.2) +
+  ggtitle("") +
+  theme(
+    plot.title = element_text(size = 18),
+    legend.position = "none",
+    axis.title.x = element_text(size = 16),
+    axis.title.y = element_text(size = 16),
+    axis.text.y = element_text(size = 14),
+    axis.text.x = element_text(size = 14)
+  ) +
+  xlab("Publication Year") +
+  scale_x_continuous(limits = c(min_year, max(data$year, na.rm = TRUE)))
+
+print(time_lag_bias)
+
+```
+
+```{r}
+# **Sensitivity Analysis** 
+
+## *Leave-one-out analysis*
+
+### *Leave one study out*
+
+#### *Intercept only model (lnRR)*
+
+data$leave_study <- as.factor(data$study_id)
+
+### create a list to contain model estimates
+leave_study_out_model_lnRR <- list()
+VCV_leave_study_out_lnRR <- list()
+
+
+### repeatedly run the multilevel model, leaving out one study at a time
+for(i in 1:length(levels(data$leave_study))){
+  ### create the data with one study removed at a time
+  data_study_leave <- data %>% filter(leave_study != levels(data$leave_study)[i])
+  
+  ### create a list of VCV matrices for following model fitting
+  VCV_leave_study_out_lnRR[[i]] <- impute_covariance_matrix(vi = data_study_leave$lnRRv, cluster = data_study_leave$study_id, r = 0.5)
+  
+  ### model fitting
+  leave_study_out_model_lnRR[[i]] <- rma.mv(yi = lnRR, V = VCV_leave_study_out_lnRR[[i]], 
+                                            random = list(~1 | study_id,
+                                                          ~1 | assay_id),
+                                            method = "REML", 
+                                            test = "t",
+                                            data = data_study_leave,
+                                            sparse = TRUE)
+}
+
+results.leave_study_out_model_lnRR <- as.data.frame(cbind(
+  sapply(leave_study_out_model_lnRR, function(x) summary(x)$beta), 
+  sapply(leave_study_out_model_lnRR, function(x) summary(x)$se),   
+  sapply(leave_study_out_model_lnRR, function(x) summary(x)$zval), 
+  sapply(leave_study_out_model_lnRR, function(x) summary(x)$pval), 
+  sapply(leave_study_out_model_lnRR, function(x) summary(x)$ci.lb),
+  sapply(leave_study_out_model_lnRR, function(x) summary(x)$ci.ub) 
+))
+
+colnames(results.leave_study_out_model_lnRR) <- c("Estimate", "SE", "zval", "pval", "ci.lb", "ci.ub")
+results.leave_study_out_model_lnRR$study_id <- unique(data$study_id)
+
+# Display the results table
+kable(results.leave_study_out_model_lnRR) %>%
+  kable_styling("striped", position = "left") %>%
+  scroll_box(width = "100%", height = "500px")
+
+#Leave one study out lnRR plot
+leave_one_study_out_lnRR_forest_plot <- ggplot(results.leave_study_out_model_lnRR, 
+                                               aes(x = fct_reorder(as.factor(study_id), Estimate), 
+                                                   y = Estimate, 
+                                                   ymin = ci.lb, 
+                                                   ymax = ci.ub)) +
+  geom_pointrange() +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  theme_bw() +
+  theme(legend.position = "none",
+        axis.text = element_text(color = "black"),
+        axis.title = element_text(face = "bold", color = "black"),
+        plot.caption = element_text(size = 10, color = "gray10", face = "italic"),
+        axis.text.y = element_text(size = 8)) +
+  labs(caption = "The value in each point is the point estimate excluding one study at a time",
+       x = "Study ID",
+       y = "lnRR") +
+  ylim(-0.6, 0.2) +
+  coord_flip()
+
+print(leave_one_study_out_lnRR_forest_plot)
+
+results.leave_study_out_model_lnRR %>% 
+  summarise(estimate = mean(Estimate), # calculate the mean coefficients across the models generated
+            se = mean(SE), 
+            zval = mean(zval), 
+            pval = mean(pval), 
+            ci.lb = mean(ci.lb), 
+            ci.ub = mean(ci.ub)) %>% 
+  kable() %>% kable_styling("striped", position = "left")
+
+```
+
+```{r}
+#### *Intercept only model (lnVR)*
+
+data$leave_study <- as.factor(data$study_id)
+
+### create a list to contain model estimates
+leave_study_out_model_lnVR <- list()
+VCV_leave_study_out_lnVR <- list()
+
+### repeatedly run the multilevel model, leaving out one study at a time
+for(i in 1:length(levels(data$leave_study))){
+  data_study_leave <- data %>% filter(leave_study != levels(data$leave_study)[i])
+  
+  VCV_leave_study_out_lnVR[[i]] <- impute_covariance_matrix(vi = data_study_leave$lnVRv, cluster = data_study_leave$study_id, r = 0.5)
+  
+  leave_study_out_model_lnVR[[i]] <- rma.mv(yi = lnVR, V = VCV_leave_study_out_lnVR[[i]], 
+                                            random = list(~1 | study_id,
+                                                          ~1 | assay_id),
+                                            method = "REML", 
+                                            test = "t",
+                                            data = data_study_leave,
+                                            sparse = TRUE)
+}
+
+results.leave_study_out_model_lnVR <- as.data.frame(cbind(
+  sapply(leave_study_out_model_lnVR, function(x) summary(x)$beta), 
+  sapply(leave_study_out_model_lnVR, function(x) summary(x)$se),  
+  sapply(leave_study_out_model_lnVR, function(x) summary(x)$zval),
+  sapply(leave_study_out_model_lnVR, function(x) summary(x)$pval), 
+  sapply(leave_study_out_model_lnVR, function(x) summary(x)$ci.lb),
+  sapply(leave_study_out_model_lnVR, function(x) summary(x)$ci.ub) 
+))
+
+colnames(results.leave_study_out_model_lnVR) <- c("Estimate", "SE", "zval", "pval", "ci.lb", "ci.ub")
+results.leave_study_out_model_lnVR$study_id <- unique(data$study_id)
+
+# Display the results table
+kable(results.leave_study_out_model_lnVR) %>%
+  kable_styling("striped", position = "left") %>%
+  scroll_box(width = "100%", height = "500px")
+
+leave_one_study_out_lnVR_forest_plot <- ggplot(results.leave_study_out_model_lnVR, 
+                                               aes(x = fct_reorder(as.factor(study_id), Estimate), 
+                                                   y = Estimate, 
+                                                   ymin = ci.lb, 
+                                                   ymax = ci.ub)) +
+  geom_pointrange() +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  theme_bw() +
+  theme(legend.position = "none",
+        axis.text = element_text(color = "black"),
+        axis.title = element_text(face = "bold", color = "black"),
+        plot.caption = element_text(size = 10, color = "gray10", face = "italic"),
+        axis.text.y = element_text(size = 8)) +
+  labs(caption = "The value in each point is the point estimate excluding one study at a time",
+       x = "Study ID",
+       y = "lnVR") +
+  coord_flip()
+
+print(leave_one_study_out_lnVR_forest_plot)
+
+results.leave_study_out_model_lnVR %>% 
+  summarise(estimate = mean(Estimate), 
+            se = mean(SE), 
+            zval = mean(zval), 
+            pval = mean(pval), 
+            ci.lb = mean(ci.lb), 
+            ci.ub = mean(ci.ub)) %>% 
+  kable() %>% kable_styling("striped", position = "left")
+
+```
+
+```{r}
+### *Leave one species out*
+
+#### *Intercept only model (lnRR)*
+
+# Convert species_latin to a factor and create a new column for the leave-one-out procedure
+data$leave_species <- as.factor(data$species_latin)
+
+# Initialize lists to contain the model estimates and VCV matrices
+leave_species_out_model_lnRR <- list()
+VCV_leave_species_out_lnRR <- list()
+
+# Iteratively run the multilevel model, leaving out one species at a time
+for(i in 1:length(levels(data$leave_species))){
+  # Create the data with one species removed at a time
+  data_species_leave <- data %>% filter(leave_species != levels(data$leave_species)[i])
+  
+  # Create a VCV matrix for the subset data
+  VCV_leave_species_out_lnRR[[i]] <- impute_covariance_matrix(vi = data_species_leave$lnRRv, cluster = data_species_leave$study_id, r = 0.5)
+  
+  # Model fitting
+  leave_species_out_model_lnRR[[i]] <- rma.mv(yi = data_species_leave$lnRR,
+                                              V = VCV_leave_species_out_lnRR[[i]],
+                                              random = list(~1 | study_id,
+                                                            ~1 | assay_id),
+                                              method = "REML", 
+                                              test = "t",
+                                              data = data_species_leave,
+                                              sparse = TRUE)
+} 
+
+
+results.leave_species_out_model_lnRR <- as.data.frame(cbind(
+  sapply(leave_species_out_model_lnRR, function(x) summary(x)$beta), 
+  sapply(leave_species_out_model_lnRR, function(x) summary(x)$se),   
+  sapply(leave_species_out_model_lnRR, function(x) summary(x)$zval), 
+  sapply(leave_species_out_model_lnRR, function(x) summary(x)$pval), 
+  sapply(leave_species_out_model_lnRR, function(x) summary(x)$ci.lb),
+  sapply(leave_species_out_model_lnRR, function(x) summary(x)$ci.ub) 
+))
+
+colnames(results.leave_species_out_model_lnRR) <- c("Estimate", "SE", "zval", "pval", "ci.lb", "ci.ub") 
+results.leave_species_out_model_lnRR$species_latin <- unique(data$species_latin)
+
+# Display the results table
+kable(results.leave_species_out_model_lnRR) %>%
+  kable_styling("striped", position = "left") %>%
+  scroll_box(width = "100%", height = "500px")
+
+leave_one_species_out_lnRR_forest_plot <- ggplot(results.leave_species_out_model_lnRR, 
+                                                 aes(x = fct_reorder(as.factor(species_latin), Estimate), 
+                                                     y = Estimate, 
+                                                     ymin = ci.lb, 
+                                                     ymax = ci.ub)) +
+  geom_pointrange() +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  theme_bw() +
+  theme(legend.position = "none",
+        axis.text = element_text(color = "black"),
+        axis.title = element_text(face = "bold", color = "black"),
+        plot.caption = element_text(size = 10, color = "gray10", face = "italic"),
+        axis.text.y = element_text(size = 8)) +
+  labs(caption = "The value in each point is the estimate excluding one species at a time",
+       x = "Species Latin",
+       y = "lnRR") +
+  ylim(-0.6, 0.2) +
+  coord_flip()
+
+print(leave_one_species_out_lnRR_forest_plot)
+
+results.leave_species_out_model_lnRR %>% 
+  summarise(estimate = mean(Estimate), 
+            se = mean(SE), 
+            zval = mean(zval), 
+            pval = mean(pval), 
+            ci.lb = mean(ci.lb), 
+            ci.ub = mean(ci.ub)) %>% 
+  kable() %>% kable_styling("striped", position = "left")
+```
+
+```{r}
+#### *Intercept only model (lnVR)*
+# Convert species_latin to a factor and create a new column for the leave-one-out procedure
+data$leave_species <- as.factor(data$species_latin)
+
+# Initialize lists to contain the model estimates and VCV matrices
+leave_species_out_model_lnVR <- list()
+VCV_leave_species_out_lnVR <- list()
+
+# Iteratively run the multilevel model, leaving out one species at a time
+for(i in 1:length(levels(data$leave_species))){
+  # Create the data with one species removed at a time
+  data_species_leave <- data %>% filter(leave_species != levels(data$leave_species)[i])
+  
+  # Create a VCV matrix for the subset data
+  VCV_leave_species_out_lnVR[[i]] <- impute_covariance_matrix(vi = data_species_leave$lnVRv, cluster = data_species_leave$study_id, r = 0.5)
+  
+  # Model fitting
+  leave_species_out_model_lnVR[[i]] <- rma.mv(yi = data_species_leave$lnVR,
+                                              V = VCV_leave_species_out_lnVR[[i]],
+                                              random = list(~1 | study_id,
+                                                            ~1 | assay_id
+                                                            ),
+                                              method = "REML", 
+                                              test = "t",
+                                              data = data_species_leave,
+                                              sparse = TRUE)
+} 
+
+results.leave_species_out_model_lnVR <- as.data.frame(cbind(
+  sapply(leave_species_out_model_lnVR, function(x) summary(x)$beta), 
+  sapply(leave_species_out_model_lnVR, function(x) summary(x)$se),   
+  sapply(leave_species_out_model_lnVR, function(x) summary(x)$zval), 
+  sapply(leave_species_out_model_lnVR, function(x) summary(x)$pval), 
+  sapply(leave_species_out_model_lnVR, function(x) summary(x)$ci.lb),
+  sapply(leave_species_out_model_lnVR, function(x) summary(x)$ci.ub)
+))
+
+colnames(results.leave_species_out_model_lnVR) <- c("Estimate", "SE", "zval", "pval", "ci.lb", "ci.ub") 
+results.leave_species_out_model_lnVR$species_latin <- unique(data$species_latin)
+
+# Display the results table
+kable(results.leave_species_out_model_lnVR) %>%
+  kable_styling("striped", position = "left") %>%
+  scroll_box(width = "100%", height = "500px")
+
+leave_one_species_out_lnVR_forest_plot <- ggplot(results.leave_species_out_model_lnVR, 
+                                                 aes(x = fct_reorder(as.factor(species_latin), Estimate), 
+                                                     y = Estimate, 
+                                                     ymin = ci.lb, 
+                                                     ymax = ci.ub)) +
+  geom_pointrange() +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  theme_bw() +
+  theme(legend.position = "none",
+        axis.text = element_text(color = "black"),
+        axis.title = element_text(face = "bold", color = "black"),
+        plot.caption = element_text(size = 10, color = "gray10", face = "italic"),
+        axis.text.y = element_text(size = 8)) +
+  labs(caption = "The value in each point is the estimate excluding one species at a time",
+       x = "Species Latin",
+       y = "lnVR") +
+  coord_flip()
+
+print(leave_one_species_out_lnVR_forest_plot)
+
+results.leave_species_out_model_lnVR %>% 
+  summarise(estimate = mean(Estimate), 
+            se = mean(SE), 
+            zval = mean(zval), 
+            pval = mean(pval), 
+            ci.lb = mean(ci.lb), 
+            ci.ub = mean(ci.ub)) %>% 
+  kable() %>% kable_styling("striped", position = "left")
+
+```
+
+```{r}
+### *Leave one pharmaceutical out*
+
+#### *Intercept only model (lnRR)*
+# Convert pharmaceutical_class to a factor and create a new column for the leave-one-out procedure
+data$leave_pharmaceutical_class <- as.factor(data$pharmaceutical_class)
+
+# Initialize lists to contain the model estimates and VCV matrices
+leave_pharmaceutical_class_out_model_lnRR <- list()
+VCV_leave_pharmaceutical_class_out_lnRR <- list()
+
+ # Iteratively run the multilevel model, leaving out one pesticide chemical class at a time
+for(i in 1:length(levels(data$leave_pharmaceutical_class))){
+  data_pharmaceutical_class_leave <- data %>% filter(leave_pharmaceutical_class != levels(data$leave_pharmaceutical_class)[i])
+  
+  VCV_leave_pharmaceutical_class_out_lnRR[[i]] <- impute_covariance_matrix(vi = data_pharmaceutical_class_leave$lnRRv, cluster = data_pharmaceutical_class_leave$study_id, r = 0.5)
+  
+  leave_pharmaceutical_class_out_model_lnRR[[i]] <- rma.mv(yi = data_pharmaceutical_class_leave$lnRR,
+                                                V = VCV_leave_pharmaceutical_class_out_lnRR[[i]],
+                                                random = list(~1 | study_id,
+                                                              ~1 | assay_id),
+                                                method = "REML", 
+                                                test = "t",
+                                                data = data_pharmaceutical_class_leave,
+                                                sparse = TRUE)
+} 
+
+results.leave_pharmaceutical_class_out_model_lnRR <- as.data.frame(cbind(
+  sapply(leave_pharmaceutical_class_out_model_lnRR, function(x) summary(x)$beta), 
+  sapply(leave_pharmaceutical_class_out_model_lnRR, function(x) summary(x)$se),   
+  sapply(leave_pharmaceutical_class_out_model_lnRR, function(x) summary(x)$zval), 
+  sapply(leave_pharmaceutical_class_out_model_lnRR, function(x) summary(x)$pval), 
+  sapply(leave_pharmaceutical_class_out_model_lnRR, function(x) summary(x)$ci.lb),
+  sapply(leave_pharmaceutical_class_out_model_lnRR, function(x) summary(x)$ci.ub) 
+))
+
+colnames(results.leave_pharmaceutical_class_out_model_lnRR) <- c("Estimate", "SE", "zval", "pval", "ci.lb", "ci.ub") 
+results.leave_pharmaceutical_class_out_model_lnRR$pharmaceutical_class <- unique(data$pharmaceutical_class)
+
+# Display the results table
+kable(results.leave_pharmaceutical_class_out_model_lnRR) %>%
+  kable_styling("striped", position = "left") %>%
+  scroll_box(width = "100%", height = "500px")
+
+leave_one_pharmaceutical_class_out_lnRR_forest_plot <- ggplot(results.leave_pharmaceutical_class_out_model_lnRR, 
+                                                   aes(x = fct_reorder(as.factor(pharmaceutical_class), Estimate), 
+                                                       y = Estimate, 
+                                                       ymin = ci.lb, 
+                                                       ymax = ci.ub)) +
+  geom_pointrange() +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  theme_bw() +
+  theme(legend.position = "none",
+        axis.text = element_text(color = "black"),
+        axis.title = element_text(face = "bold", color = "black"),
+        plot.caption = element_text(size = 10, color = "gray10", face = "italic"),
+        axis.text.y = element_text(size = 8)) +
+  labs(caption = "The value in each point is the estimate excluding one pharmaceutical at a time",
+       x = "Pharmaceutical Class",
+       y = "lnRR") +
+  coord_flip()
+
+print(leave_one_pharmaceutical_class_out_lnRR_forest_plot)
+
+results.leave_pharmaceutical_class_out_model_lnRR %>% 
+  summarise(estimate = mean(Estimate), 
+            se = mean(SE), 
+            zval = mean(zval), 
+            pval = mean(pval), 
+            ci.lb = mean(ci.lb), 
+            ci.ub = mean(ci.ub)) %>% 
+  kable() %>% kable_styling("striped", position = "left")
+```
+
+```{r}
+#### *Intercept only model (lnVR)*
+# Convert pharmaceutical_class to a factor and create a new column for the leave-one-out procedure
+data$leave_pharmaceutical_class <- as.factor(data$pharmaceutical_class)
+
+# Initialize lists to contain the model estimates and VCV matrices
+leave_pharmaceutical_class_out_model_lnVR <- list()
+VCV_leave_pharmaceutical_class_out_lnVR <- list()
+
+# Iteratively run the multilevel model, leaving out one pesticide chemical class at a time
+for(i in 1:length(levels(data$leave_pharmaceutical))){
+  data_pharmaceutical_class_leave <- data %>% filter(leave_pharmaceutical_class != levels(data$leave_pharmaceutical_class)[i])
+  
+  VCV_leave_pharmaceutical_class_out_lnVR[[i]] <- impute_covariance_matrix(vi = data_pharmaceutical_class_leave$lnVRv, cluster = data_pharmaceutical_class_leave$study_id, r = 0.5)
+  
+  leave_pharmaceutical_class_out_model_lnVR[[i]] <- rma.mv(yi = data_pharmaceutical_class_leave$lnVR,
+                                                           V = VCV_leave_pharmaceutical_class_out_lnVR[[i]],
+                                                           random = list(~1 | study_id,
+                                                                         ~1 | assay_id),
+                                                           method = "REML", 
+                                                           test = "t",
+                                                           data = data_pharmaceutical_class_leave,
+                                                           sparse = TRUE)
+} 
+
+results.leave_pharmaceutical_class_out_model_lnVR <- as.data.frame(cbind(
+  sapply(leave_pharmaceutical_class_out_model_lnVR, function(x) summary(x)$beta), 
+  sapply(leave_pharmaceutical_class_out_model_lnVR, function(x) summary(x)$se),   
+  sapply(leave_pharmaceutical_class_out_model_lnVR, function(x) summary(x)$zval), 
+  sapply(leave_pharmaceutical_class_out_model_lnVR, function(x) summary(x)$pval), 
+  sapply(leave_pharmaceutical_class_out_model_lnVR, function(x) summary(x)$ci.lb),
+  sapply(leave_pharmaceutical_class_out_model_lnVR, function(x) summary(x)$ci.ub) 
+))
+
+colnames(results.leave_pharmaceutical_class_out_model_lnVR) <- c("Estimate", "SE", "zval", "pval", "ci.lb", "ci.ub") 
+results.leave_pharmaceutical_class_out_model_lnVR$pharmaceutical_class <- unique(data$pharmaceutical_class)
+
+# Display the results table
+kable(results.leave_pharmaceutical_class_out_model_lnVR) %>%
+  kable_styling("striped", position = "left") %>%
+  scroll_box(width = "100%", height = "500px")
+
+leave_one_pharmaceutical_class_out_lnVR_forest_plot <- ggplot(results.leave_pharmaceutical_class_out_model_lnVR, 
+                                                              aes(x = fct_reorder(as.factor(pharmaceutical_class), Estimate), 
+                                                                  y = Estimate, 
+                                                                  ymin = ci.lb, 
+                                                                  ymax = ci.ub)) +
+  geom_pointrange() +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  theme_bw() +
+  theme(legend.position = "none",
+        axis.text = element_text(color = "black"),
+        axis.title = element_text(face = "bold", color = "black"),
+        plot.caption = element_text(size = 10, color = "gray10", face = "italic"),
+        axis.text.y = element_text(size = 8)) +
+  labs(caption = "The value in each point is the estimate excluding one pharmaceutical at a time",
+       x = "Pharmaceutical Class",
+       y = "lnVR") +
+    coord_flip()
+
+print(leave_one_pharmaceutical_class_out_lnVR_forest_plot)
+
+results.leave_pharmaceutical_class_out_model_lnVR %>% 
+  summarise(estimate = mean(Estimate), 
+            se = mean(SE), 
+            zval = mean(zval), 
+            pval = mean(pval), 
+            ci.lb = mean(ci.lb), 
+            ci.ub = mean(ci.ub)) %>% 
+  kable() %>% kable_styling("striped", position = "left")
+
+```
+

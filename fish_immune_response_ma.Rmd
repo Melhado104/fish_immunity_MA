@@ -1,0 +1,2613 @@
+---
+title: "The effects of pharmaceutical exposure on fish immune system: a systematic
+  review and meta-analysis"
+author: "Gabriel Melhado"
+date: "2025-03-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#Load packages
+pacman::p_load(devtools, tidyverse, metafor, patchwork, R.rsp, orchaRd, emmeans,
+               ape, phytools, flextable, here, kableExtra, magrittr, metagear, rotl,
+               clubSandwich, MuMIn, ggsankey)
+```
+
+```{r}
+#Load Data
+data <- read.csv(here("data", "data_water.csv"))
+
+```
+
+```{r}
+## *Calculate effect sizes and sampling variances*
+# Make sure all data is numeric 
+data <- data  %>%
+  mutate(
+    treatment_mean = as.numeric(treatment_mean),
+    treatment_sd = as.numeric(treatment_sd),
+    treatment_n = as.numeric(treatment_n),
+    control_mean = as.numeric(control_mean),
+    control_sd = as.numeric(control_sd),
+    control_n = as.numeric(control_n)
+  )
+
+# Calculate log response ratio (lnRR)
+lnRR <- escalc(measure = "ROM", 
+               m1i = treatment_mean, sd1i = treatment_sd, n1i = treatment_n, 
+               m2i = control_mean, sd2i = control_sd, n2i = control_n, 
+               data = data)
+
+
+# Calculate log coefficient variation ratio (lnCVR)
+lnCVR <- escalc(measure = "CVR", 
+                m1i = treatment_mean, sd1i = treatment_sd, n1i = treatment_n, 
+                m2i = control_mean, sd2i = control_sd, n2i = control_n, 
+                data = data)
+
+# Calculate the standardised mean difference for sensitivity analysis
+SMD <- escalc(measure = "SMD", 
+              m1i = treatment_mean, sd1i = treatment_sd, n1i = treatment_n, 
+              m2i = control_mean, sd2i = control_sd, n2i = control_n, 
+              data = data)
+
+# Calculate log variation ratio (lnVR)
+lnVR <- escalc(measure = "VR", 
+               m1i = treatment_mean, sd1i = treatment_sd, n1i = treatment_n, 
+               m2i = control_mean, sd2i = control_sd, n2i = control_n, 
+               data = data)
+
+# Summary statistics of sampling variances
+sampling_variance_summaries <- list(
+  lnRR = summary(lnRR$vi),
+  lnCVR = summary(lnCVR$vi),
+  SMD = summary(SMD$vi),
+  VR = summary(lnVR$vi)
+)
+
+# Calculate precision for each effect size estimate with checks
+lnRR$precision <- ifelse(lnRR$vi > 0, 1 / sqrt(lnRR$vi), NA)
+lnCVR$precision <- ifelse(lnCVR$vi > 0, 1 / sqrt(lnCVR$vi), NA)
+SMD$precision <- ifelse(SMD$vi > 0, 1 / sqrt(SMD$vi), NA)
+lnVR$precision <- ifelse(lnVR$vi > 0, 1 / sqrt(lnVR$vi), NA)
+
+
+# Merge the data
+effect_size_metrics_set <- data.frame(
+  lnRR = lnRR$yi, lnRRv = lnRR$vi, lnRR_precision = lnRR$precision,
+  lnVR = lnVR$yi, lnVRv = lnVR$vi, lnVR_precision = lnVR$precision,
+  lnCVR = lnCVR$yi, lnCVRv = lnCVR$vi, lnCVR_precision = lnCVR$precision,
+  SMD = SMD$yi, SMDv = SMD$vi, SMD_precision = SMD$precision,
+  control_imputed = data$control_sd, treatment_imputed = data$treatment_sd
+)
+
+# Bind the effect size metrics set to the main data
+data <- cbind(data, effect_size_metrics_set)
+
+#Flip the sign for pro-inflammatory markers (change effect sizes direction)
+data$lnRR <- ifelse(data$change_sign == "yes", -1 * data$lnRR, data$lnRR)
+
+# Select specific columns including the new precision columns
+effect_size_metrics_set_kable <- data[, which(colnames(data) %in% c(
+  "study_id","assay_id", "species_english", "pharmaceutical", "immune_trait_category",
+  "lnRR", "lnRRv", "lnRR_precision", 
+  "lnCVR", "lnCVRv", "lnCVR_precision", 
+  "lnVR", "lnVRv", "lnVR_precision", 
+  "SMD", "SMDv", "SMD_precision", 
+  "control_imputed", "treatment_imputed"
+))] %>% dfround(digits = 3)
+
+# Table of the effect sizes
+kable(effect_size_metrics_set_kable, "html") %>%
+  kable_styling("bordered", position = "left") %>%
+  scroll_box(width = "250%", height = "800px")
+
+# Plot the distribution of effect size estimates (lnRR)
+lnRR_dist_plot <- effect_size_metrics_set_kable %>%
+  ggplot(aes(lnRR)) +
+  geom_histogram(fill = RColorBrewer::brewer.pal(n = 8, name = "Set2")[2], col = "black", binwidth = 0.1, alpha = 0.4) +
+  theme_bw() +
+  theme(legend.position = "none",
+        plot.title = element_text(face = "bold", hjust = 0.5),
+        axis.title.x = element_text(face = "bold"),
+        axis.title.y = element_text(face = "bold"),
+        axis.text.x = element_text(color = "black"),
+        axis.text.y = element_text(color = "black"),
+        axis.ticks = element_line(color = "black"),
+        plot.caption = element_text(size = 10, color = "gray10", face = "italic")) +
+  labs(caption = "Distribution of Effect Size Estimates (lnRR)",
+       x = "lnRR",
+       y = "Frequency")
+
+print(lnRR_dist_plot)
+
+# Plot the distribution of effect size estimates (lnVR)
+lnVR_dist_plot <- effect_size_metrics_set_kable %>%
+  ggplot(aes(lnCVR)) +
+  geom_histogram(fill = RColorBrewer::brewer.pal(n = 8, name = "Set2")[3], col = "black", binwidth = 0.1, alpha = 0.4) +
+  theme_bw() +
+  theme(legend.position = "none",
+        plot.title = element_text(face = "bold", hjust = 0.5),
+        axis.title.x = element_text(face = "bold"),
+        axis.title.y = element_text(face = "bold"),
+        axis.text.x = element_text(color = "black"),
+        axis.text.y = element_text(color = "black"),
+        axis.ticks = element_line(color = "black"),
+        plot.caption = element_text(size = 10, color = "gray10", face = "italic")) +
+  labs(caption = "Distribution of Effect Size Estimates (lnVR)",
+       x = "lnVR",
+       y = "Frequency")
+
+print(lnVR_dist_plot)
+
+```
+
+```{r}
+## *Dependent effect size estimates*
+### *Create phylogentic tree*
+data <- as.data.frame(data)
+
+data$species_latin = as.factor(data$species_latin)
+
+taxa <- tnrs_match_names(names = levels(data$species_latin), context = "Animals")  # Match species names to the Open Tree of Life taxonomy
+
+kable(taxa)  # Display matched species, ensuring each species has a unique match in the Open Tree of Life
+
+taxa$unique_name <- gsub(" ", "_", taxa$unique_name)  # Replace spaces in species names with underscores
+
+phylo_tree <- tol_induced_subtree(ott_ids = taxa$ott_id, label_format = "name")  # Generate a phylogenetic tree based on the Open Tree of Life taxonomy
+
+ott_in_tree <- ott_id(taxa)[is_in_tree(ott_id(taxa))]  # Ensure all identifiers are present in the taxonomy
+
+phylo_tree <- tol_induced_subtree(ott_ids = ott_in_tree)  # Generate a phylogenetic tree including all species present in the taxonomy
+
+is.binary(phylo_tree)  # Check if tree is binary 
+
+
+# Plot for the phylogenetic tree
+plot(phylo_tree,
+     cex= 1, #font size
+     label.offset =.1,
+     no.margin = TRUE)
+
+# Compute branch length
+phylo_branched <- compute.brlen(phylo_tree, method = "Grafen", power = 1)  # compute branch lengths using Grafen's method
+
+phylo_branched$tip.label <- strip_ott_ids(phylo_branched$tip.label, remove_underscores = FALSE)  # remove ott ID from species name to match it to the data set
+
+phylo_matrix <- vcv(phylo_branched, cor = T)  # Generate variance covariance matrix to correlate species relatedness 
+
+data <- as.data.frame(data)
+data <- data[, !duplicated(names(data))]
+
+# Convert species_latin to lowercase
+data <- mutate(data, search_string = tolower(species_latin))
+
+data <- left_join(data, select(taxa, search_string, unique_name, ott_id), by = "search_string")  # Join data sets
+
+data <- data[data$unique_name %in% phylo_branched$tip.label, ]  # Check that species names are well matched with the phylogenetic tree
+
+
+data$phylogeny <- data$unique_name  # Rename 'unique_name' to 'phylogeny' for the models
+
+```
+```{r}
+## *Variance covariance matrices*
+#To account for the dependency of effect sizes estimates due to being in the same exposure group (cohort) we constructed a series of vcv matrices.
+
+#------------------------------lnRR------------------------------#
+data<- data[!is.na(data$lnRRv),] 
+lnRRVCV <- metafor::vcalc(vi = lnRRv, cluster = exposure_id, obs = assay_id, data = data, rho = 0.5)
+lnRRVCV <- lnRRVCV + diag(1e-5, nrow(lnRRVCV))
+
+
+#------------------------------lnVR------------------------------#
+data<- data[!is.na(data$lnVRv),]
+lnVRVCV <- metafor::vcalc(vi = lnVRv, cluster = exposure_id, obs = assay_id, data = data, rho = 0.5)
+lnVRVCV <- lnVRVCV + diag(1e-5, nrow(lnVRVCV))
+```
+
+```{r}
+# **Selection of random-effect structure**
+## Null model with no random effects (lnRR)
+# fit a null model as default model
+null_mod_lnRR <- rma.mv(yi = lnRR, 
+                        V = lnRRVCV, 
+                        method = "ML", 
+                        test = "t", 
+                        data = data, 
+                        sparse = TRUE ) # Use ML to compare information criteria
+
+summary(null_mod_lnRR)
+```
+
+```{r}
+## Add *assay_id* as a random effect and compare with the null model (lnRR)
+mod_lnRR.assay_id <- rma.mv(yi = lnRR, 
+                            V = lnRRVCV,
+                            random =  ~1 | assay_id,
+                            method = "ML", 
+                            test = "t", 
+                            data = data, 
+                            sparse = T)
+
+summary(mod_lnRR.assay_id)
+
+anova(null_mod_lnRR,mod_lnRR.assay_id)
+```
+
+```{r}
+## Add *study_id* as a random effect to the null model and compare with the assay model (lnRR)
+mod_lnRR.assay_id.study_id <- rma.mv(yi = lnRR,
+                                     V = lnRRVCV,
+                                     random = list(~1 | study_id, 
+                                                   ~1 | assay_id),
+                                     method = "ML",
+                                     test = "t", 
+                                     data = data, 
+                                     sparse = T)
+
+summary(mod_lnRR.assay_id.study_id)
+
+anova(mod_lnRR.assay_id,mod_lnRR.assay_id.study_id)
+
+```
+
+```{r}
+## Add *exposure_id* as a random effect to the above model (that used *assay_id* and *study_id* as random effets) (lnRR)
+mod_lnRR.assay_id.study_id.exp_id <- rma.mv(yi = lnRR,
+                                            V = lnRRVCV,
+                                            random = list(~1 | study_id,
+                                                          ~1 | exposure_id,
+                                                          ~1 | assay_id),
+                                            method = "ML",
+                                            test = "t", 
+                                            data = data,
+                                            sparse = T)
+
+summary(mod_lnRR.assay_id.study_id.exp_id)
+
+anova(mod_lnRR.assay_id.study_id,mod_lnRR.assay_id.study_id.exp_id)
+```
+
+```{r}
+## Add *species* as a random effect to the better model (that used *assay_id* and *study_id* as random effets) (lnRR)
+mod_lnRR.assay_id.study_id.species <- rma.mv(yi = lnRR,
+                                             V = lnRRVCV,
+                                             random = list(~1 | study_id, 
+                                                           ~1 | assay_id,
+                                                           ~1 | species_latin),
+                                             method = "ML",
+                                             test = "t", 
+                                             data = data,
+                                             sparse = T)
+
+summary(mod_lnRR.assay_id.study_id.species)
+
+anova(mod_lnRR.assay_id.study_id,mod_lnRR.assay_id.study_id.species)
+
+i2_ml(mod_lnRR.assay_id.study_id.species)
+```
+
+```{r}
+## Add *phylogeny* as a random effect to the better model (that used *assay_id* and *study_id* as random effects) (lnRR)
+mod_lnRR.assay_id.study_id.species.phylogeny <- rma.mv(yi = lnRR,
+                                                       V = lnRRVCV,
+                                                       random = list(~1 | study_id,
+                                                                     ~1 | assay_id,
+                                                                  
+~1 | phylogeny),
+                                                       method = "ML",
+                                                       test = "t", 
+                                                       data = data, 
+                                                       sparse = T,
+                                                       R = list(phylogeny = phylo_matrix))
+
+summary(mod_lnRR.assay_id.study_id.species.phylogeny)
+
+fitstats(mod_lnRR.assay_id.study_id.species, mod_lnRR.assay_id.study_id.species.phylogeny)
+
+i2_ml(mod_lnRR.assay_id.study_id.species.phylogeny)
+```
+
+```{r}
+## Add *pharmaceutical_class* as a random effect to the above model (that used *assay_id* and *study_id* as random effects) (lnRR)
+mod_lnRR.assay_id.study_id.pharmaceutical_class <- rma.mv(yi = lnRR,
+                                                       V = lnRRVCV,
+                                                       random = list(~1 | study_id,
+                                                                     ~1 | assay_id,
+                                                                     ~1 | pharmaceutical_class),
+                                                       method = "ML",
+                                                       test = "t", 
+                                                       data = data, 
+                                                       sparse = T)
+
+summary(mod_lnRR.assay_id.study_id.pharmaceutical_class)
+
+anova(mod_lnRR.assay_id.study_id, mod_lnRR.assay_id.study_id.pharmaceutical_class)
+
+i2_ml(mod_lnRR.assay_id.study_id.pharmaceutical_class)
+
+```
+```{r}
+## Add *pharmaceutical* as a random effect to the above model (that used *assay_id* and *study_id* as random effects) (lnRR)
+mod_lnRR.assay_id.study_id.pharmaceutical <- rma.mv(yi = lnRR,
+                                                       V = lnRRVCV,
+                                                       random = list(~1 | study_id,
+                                                                     ~1 | assay_id,
+                                                                     ~1 | pharmaceutical),
+                                                       method = "ML",
+                                                       test = "t", 
+                                                       data = data, 
+                                                       sparse = T)
+
+summary(mod_lnRR.assay_id.study_id.pharmaceutical)
+
+anova(mod_lnRR.assay_id.study_id, mod_lnRR.assay_id.study_id.pharmaceutical)
+
+i2_ml(mod_lnRR.assay_id.study_id.pharmaceutical)
+
+```
+
+```{r}
+## Null model with no random effects (lnVR)
+# fit a null model as default model
+
+
+
+null_mod_lnVR <- rma.mv(yi = lnVR, 
+                        V = lnVRVCV, 
+                        method = "ML", 
+                        test = "t", 
+                        data = data, 
+                        sparse = TRUE)
+
+
+summary(null_mod_lnVR)
+
+```
+
+```{r}
+## Add *assay_id* as a random effect and compare with the null model (lnVR)
+mod_lnVR.assay_id <- rma.mv(yi = lnVR, 
+                            V = lnVRVCV,
+                            random =  ~1 | assay_id,
+                            method = "ML", 
+                            test = "t", 
+                            data = data, 
+                            sparse = T)
+
+summary(mod_lnVR.assay_id)
+
+anova(null_mod_lnVR, mod_lnVR.assay_id)
+
+```
+
+```{r}
+## Add *study_id* as a random effect to the above better model (that used *assay_id* as a random effect) (lnVR)
+mod_lnVR.assay_id.study_id <- rma.mv(yi = lnVR,
+                                     V = lnVRVCV,
+                                     random = list(~1 | study_id, 
+                                                   ~1 | assay_id),
+                                     method = "ML",
+                                     test = "t", 
+                                     data = data, 
+                                     sparse = T)
+
+summary(mod_lnVR.assay_id.study_id)
+
+anova(mod_lnVR.assay_id, mod_lnVR.assay_id.study_id)
+
+```
+
+```{r}
+## Add *exposure_id* as a random effect to the above better model (that used *assay_id* and *study_id* as random effets) (lnVR)
+mod_lnVR.assay_id.study_id.exp_id <- rma.mv(yi = lnVR,
+                                            V = lnVRVCV,
+                                            random = list(~1 | study_id,
+                                                          ~1 | exposure_id,
+                                                          ~1 | assay_id),
+                                            method = "ML",
+                                            test = "t", 
+                                            data = data,
+                                            sparse = T)
+
+summary(mod_lnVR.assay_id.study_id.exp_id)
+
+anova(mod_lnVR.assay_id.study_id, mod_lnVR.assay_id.study_id.exp_id)
+```
+
+```{r}
+## Add *species* as a random effect to the above better model (that used *assay_id* and *study_id* as random effets) (lnVR)
+mod_lnVR.assay_id.study_id.species <- rma.mv(yi = lnVR,
+                                             V = lnVRVCV,
+                                             random = list(~1 | study_id, 
+                                                           ~1 | assay_id,
+                                                           ~1 | species_latin),
+                                             method = "ML",
+                                             test = "t", 
+                                             data = data,
+                                             sparse = T)
+
+summary(mod_lnVR.assay_id.study_id.species)
+
+anova(mod_lnVR.assay_id.study_id, mod_lnVR.assay_id.study_id.species)
+
+```
+
+```{r}
+## Add *phylogeny* as a random effect to the above better model (that used *assay_id* and *study_id* as random effects) (lnVR)
+mod_lnVR.assay_id.study_id.phylogeny <- rma.mv(yi = lnVR,
+                                                       V = lnVRVCV,
+                                                       random = list(~1 | study_id,
+                                                                     ~1 | assay_id,
+                                                                     ~1 | phylogeny),
+                                                       method = "ML",
+                                                       test = "t", 
+                                                       data = data, 
+                                                       sparse = T,
+                                                       R = list(phylogeny = phylo_matrix))
+
+summary(mod_lnVR.assay_id.study_id.phylogeny)
+
+anova(mod_lnVR.assay_id.study_id, mod_lnVR.assay_id.study_id.phylogeny)
+
+```
+
+```{r}
+## Add *pharmaceutical* as a random effect to the above better model (that used *assay_id* and *study_id* as random effects) (lnVR)
+mod_lnVR.assay_id.study_id.pharmaceutical <- rma.mv(yi = lnVR,
+                                                                 V = lnVRVCV,
+                                                                 random = list(~1 | study_id,
+                                                                               ~1 | assay_id,
+                                                                               ~1 | pharmaceutical),
+                                                                 method = "ML",
+                                                                 test = "t", 
+                                                                 data = data, 
+                                                                 sparse = T)
+
+summary(mod_lnVR.assay_id.study_id.pharmaceutical)
+```
+
+```{r}
+## Add *pharmaceutical* as a random effect to the above better model (that used *assay_id* and *study_id* as random effects) (lnVR)
+mod_lnVR.assay_id.study_id.pharmaceutical_class <- rma.mv(yi = lnCVR,
+                                                                 V = lnVRVCV,
+                                                                 random = list(~1 | study_id,
+                                                                               ~1 | assay_id,
+                                                                               ~1 | pharmaceutical_class),
+                                                                 method = "ML",
+                                                                 test = "t", 
+                                                                 data = data, 
+                                                                 sparse = T)
+
+summary(mod_lnVR.assay_id.study_id.pharmaceutical_class)
+```
+
+```{r}
+# **Intercept only meta-analysis models**
+## *Intercept only model (lnRR)*
+# Model
+lnRR_intercept_only <- rma.mv(yi = lnRR,
+                              V = lnRRVCV,
+                              random = list(~1 | study_id,
+                                            ~1 | assay_id),
+                              method = "REML",
+                              test = "t", 
+                              data = data,
+                              sparse = T)
+
+# Summary statistics 
+summary(lnRR_intercept_only)
+
+mod_results(lnRR_intercept_only, mod = "1", data = data, group = "study_id")  # For prediction intervals
+
+i2_ml(lnRR_intercept_only)
+
+# Given point estimate of lnRR
+lnRR_point <- -0.0728
+
+# Calculate the percentage change
+lnRR_percentage_change <- (1 - exp(lnRR_point)) * 100
+lnRR_percentage_change
+```
+
+```{r}
+## *Intercept only model (lnVR)*
+# Model
+lnVR_intercept_only <- rma.mv(yi = lnVR,
+                              V = lnVRVCV,
+                              random = list(~1 | study_id,
+                                            ~1 | assay_id),
+                              method = "REML",
+                              test = "t", 
+                              data = data,
+                              sparse = T)
+
+
+# Summary statistics 
+summary(lnVR_intercept_only)
+
+mod_results(lnVR_intercept_only, mod = "1", data = data, group = "study_id")  
+i2_ml(lnVR_intercept_only)
+
+# Given point estimate of lnRR
+lnVR_point <- 0.1964
+
+# Calculate the percentage change
+lnVR_percentage_change <- (1 - exp(lnVR_point)) * 100
+lnVR_percentage_change
+
+```
+
+```{r}
+## *Figure 2*
+#Impacts of pharmaceutical exposure on fish immune response. The model estimates the average effects of pharmaceutical exposure on immune responses in fish. (A) shows the mean difference between control and treatment groups on a logarithmic scale, where negative values indicate a reduction in immune response. (B) shows the difference in variances between control and treatment groups, also on a logarithmic scale, where negative values suggest a reduction in the inter-individual variability of immune response. Shorter whiskers represent 95% confidence intervals, while longer whiskers indicate 95% prediction intervals. 'k' represents the number of effect sizes, and the number of studies is in brackets. Each circle corresponds to an effect size, with its size scaled according to precision (inverse sampling error variance).
+
+# Figure 2a)
+# Create the plot without the data argument
+intercept_only.lnRR_orchard <- orchaRd::orchard_plot(lnRR_intercept_only,
+                                                     group = "study_id",
+                                                     xlab = "lnRR",
+                                                     g = TRUE,
+                                                     k.pos = "right",
+                                                     colour = FALSE,
+                                                     fill = TRUE,  
+                                                     trunk.size = 3., 
+                                                     legend.pos = "none",
+                                                     branch.size = 1.5,
+                                                     twig.size = 1) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(8, "Dark2")[1]) +
+  scale_x_discrete(labels = c("Model estimates"))
+
+# Display the plot
+intercept_only.lnRR_orchard
+
+
+# Figure 2b)
+intercept_only.lnVR__orchard <- orchaRd::orchard_plot(lnVR_intercept_only,
+                                                      group = "study_id",
+                                                      xlab = "lnVR",
+                                                      g = TRUE,
+                                                      k.pos = "right",
+                                                      colour = FALSE,
+                                                      fill = TRUE,  
+                                                      trunk.size = 3., 
+                                                      legend.pos = "none",
+                                                      branch.size = 1.5,
+                                                      twig.size = 1) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(8, "Dark2")[2]) +
+  scale_x_discrete(labels = c("Model estimates"))
+
+# Display the plot
+intercept_only.lnVR__orchard
+
+
+# Combine the two plots 
+main_text_figure_2 <- intercept_only.lnRR_orchard + intercept_only.lnVR__orchard + plot_annotation(tag_levels = "A")
+
+print(main_text_figure_2)
+
+# ggsave(here("figures", "main_text_figure_2.jpg"), width = 24, height = 10, units = "cm", dpi = 800)
+# ggsave(here("figures", "main_text_figure_2.pdf"), width = 24, height = 10, units = "cm", dpi = 800)
+
+```
+```{r}
+# **Single moderator meta-regression**
+## *immune characteristics*
+###  *Moderating effects of immune type (lnRR)*
+# Model
+lnRR_mod_immune_trait_category <- rma.mv(yi = lnRR,
+                                   V = lnRRVCV,
+                                   random = list(~1 | study_id,
+                                                 ~1 | assay_id),
+                                   mods = ~immune_trait_category -1,
+                                   method = "REML",
+                                   test = "t", 
+                                   data = data,
+                                   sparse = T)
+
+
+# Summary results
+summary(lnRR_mod_immune_trait_category)
+
+mod_results(lnRR_mod_immune_trait_category, mod = "immune_trait_category", data = data, group = "study_id")  
+
+r2_ml(lnRR_mod_immune_trait_category)
+
+# Given point estimates of lnRR
+lnRR_point_tlr2 <- 2.8038
+lnRR_point_tgfB <- 1.6906
+lnRR_point_omjak2 <- 1.4499
+lnRR_point_il10 <- -0.4627
+
+# Calculate the percentage change using the formula
+lnRR_percentage_change_tlr2 <- (1 - exp(lnRR_point_tlr2)) * 100
+lnRR_percentage_change_tgfB <- (1 - exp(lnRR_point_tgfB)) * 100
+lnRR_percentage_change_omjak2 <- (1 - exp(lnRR_point_omjak2)) * 100
+lnRR_percentage_change_il10  <- (1 - exp(lnRR_point_il10)) * 100
+
+# Print results
+lnRR_percentage_change_tlr2
+lnRR_percentage_change_tgfB
+lnRR_percentage_change_omjak2
+lnRR_percentage_change_il10
+
+```
+
+```{r}
+###  *Moderating effects of immune response (lnVR)*
+# Model
+lnVR_mod_immune_trait_category <- rma.mv(yi = lnVR,
+                                   V = lnVRVCV,
+                                   random = list(~1 | study_id,
+                                                 ~1 | assay_id),
+                                                 
+                                   mods = ~immune_trait_category -1,
+                                   method = "REML",
+                                   test = "t", 
+                                   data = data,
+                                   sparse = T)
+
+# Summary statistics
+summary(lnVR_mod_immune_trait_category)
+
+mod_results(lnVR_mod_immune_trait_category, mod = "immune_trait_category", data = data, group = "study_id")  
+
+r2_ml(lnVR_mod_immune_trait_category)
+```
+
+```{r}
+### *Moderate by assay - immune_category_high (higher level of immune_trait_category) (lnRR)*
+# Model
+lnRR_mod_immune_category <- rma.mv(yi = lnRR,
+                         V = lnRRVCV,
+                         random = list(~1 | study_id,
+                                       ~1 | assay_id),
+                         mods = ~immune_category_high -1,
+                         method = "REML",
+                         test = "t", 
+                         data = data,
+                         sparse = T)
+
+summary(lnRR_mod_immune_category)
+r2_ml(lnRR_mod_immune_category)
+
+# Given point estimates of lnRR
+lnRR_point_gene.expression <- -0.1663
+
+# Calculate the percentage change using the formula
+lnRR_percentage_change_gene.expression <- (1 - exp(lnRR_point_gene.expression)) * 100
+
+# Print results
+lnRR_percentage_change_gene.expression
+
+```
+
+```{r}
+### *Moderate by assay - immune_category (higher level of immune_trait_category) (lnVR)*
+# Model
+lnVR_mod_immune_category <- rma.mv(yi = lnVR,
+                         V = lnVRVCV,
+                         random = list(~1 | study_id,
+                                       ~1 | assay_id),
+                                      
+                         mods = ~immune_category_high -1,
+                         method = "REML",
+                         test = "t", 
+                         data = data,
+                         sparse = T)
+
+summary(lnVR_mod_immune_category)
+
+r2_ml(lnVR_mod_immune_category)
+```
+
+```{r}
+immune_category_high_mod_orchard.lnRR <- orchaRd::orchard_plot(lnRR_mod_immune_category,
+                                                        group = "study_id", 
+                                                        xlab = "lnRR",
+                                                        
+                                                        mod = "immune_category_high",
+                                                        g = TRUE,
+                                                        k.pos = "right",
+                                                        colour = FALSE,
+                                                        fill = TRUE,  
+                                                        legend.pos = "none",
+                                                        trunk.size = 3., 
+                                                        branch.size = 1.5,
+                                                        twig.size = 1) +
+  scale_fill_viridis_d(option = "plasma") +  # Ensures enough colors
+  theme(axis.text.y = element_text(angle = 0)) +  # Make y-axis labels straight
+  plot_annotation(tag_levels = "A")
+
+immune_category_high_mod_orchard.lnRR
+
+# Figure 4B
+immune_category_high_mod_orchard.lnVR <- orchaRd::orchard_plot(lnVR_mod_immune_category,
+                                                             group = "study_id", 
+                                                             xlab = "lnVR",
+                                                             
+                                                             mod = "immune_category_high",
+                                                             g = TRUE,
+                                                             k.pos = "right",
+                                                             colour = FALSE,
+                                                             fill = TRUE,  
+                                                             legend.pos = "none",
+                                                             trunk.size = 3., 
+                                                             branch.size = 1.5,
+                                                             twig.size = 1) +
+  scale_fill_viridis_d(option = "plasma") +  # Ensures enough colors
+  theme(axis.text.y = element_text(angle = 0)) +  # Make y-axis labels straight
+  plot_annotation(tag_levels = "A")
+
+immune_category_high_mod_orchard.lnVR
+```
+
+
+```{r}
+# Figure 3a)
+# Step 1: Create a data frame with one row per immune_trait_category
+trait_levels_rr <- data.frame(immune_trait_category = sort(unique(data$immune_trait_category)))
+
+# Step 2: Create the model matrix
+X_rr <- model.matrix(~ immune_trait_category - 1, data = trait_levels_rr)
+
+# Step 3: Get predictions from the model
+preds_rr <- predict(lnRR_mod_immune_trait_category, newmods = X_rr, level = 95)
+
+# Step 4: Build the plot data frame
+immune_plot_data_rr <- data.frame(
+  immune_trait_category = trait_levels_rr$immune_trait_category,
+  estimate = preds_rr$pred,
+  ci.lb = preds_rr$ci.lb,
+  ci.ub = preds_rr$ci.ub
+)
+
+# Step 5: Order the traits by effect size
+immune_plot_data_rr <- immune_plot_data_rr %>%
+  arrange(estimate) %>%
+  mutate(immune_trait_category = factor(immune_trait_category, levels = immune_trait_category))
+
+# Step 6: Plot
+ggplot(immune_plot_data_rr, aes(x = estimate, y = immune_trait_category)) +
+  geom_point(color = "black", size = 2) +
+  geom_errorbarh(aes(xmin = ci.lb, xmax = ci.ub), color = "black", height = 0.2) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  labs(x = "lnRR", y = NULL) +
+  theme_minimal() +
+  theme(axis.text.y = element_text(angle = 0, size = 10))
+
+
+# Figure 3b)
+# Step 1: Create a new data frame with one row per immune_trait_category
+trait_levels <- data.frame(immune_trait_category = sort(unique(data$immune_trait_category)))
+
+# Step 2: Create the model matrix
+X <- model.matrix(~ immune_trait_category - 1, data = trait_levels)
+
+# Step 3: Get predictions from the model
+preds <- predict(lnVR_mod_immune_trait_category, newmods = X, level = 95)
+
+# Step 4: Build the plot data frame
+immune_plot_data <- data.frame(
+  immune_trait_category = trait_levels$immune_trait_category,
+  estimate = preds$pred,
+  ci.lb = preds$ci.lb,
+  ci.ub = preds$ci.ub
+)
+
+# Step 5: Order the traits by effect size if desired
+immune_plot_data <- immune_plot_data %>%
+  arrange(estimate) %>%
+  mutate(immune_trait_category = factor(immune_trait_category, levels = immune_trait_category))
+
+# Step 6: Plot using ggplot2 with no color variation
+ggplot(immune_plot_data, aes(x = estimate, y = immune_trait_category)) +
+  geom_point(color = "black", size = 2) +
+  geom_errorbarh(aes(xmin = ci.lb, xmax = ci.ub), color = "black", height = 0.2) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  labs(x = "lnVR", y = NULL) +
+  theme_minimal() +
+  theme(axis.text.y = element_text(angle = 0, size = 10))
+```
+```{r}
+## *Pharmaceutical characteristics*
+### *Moderate by pharmaceutical (lnRR)*
+# Model
+lnRR_mod_pharmaceutical <- rma.mv(yi = lnRR,
+                             V = lnRRVCV,
+                             random = list(~1 | study_id,
+                                           ~1 | assay_id),
+                                        
+                             mods = ~pharmaceutical -1,
+                             method = "REML",
+                             test = "t", 
+                             data = data,
+                             sparse = T)
+
+
+# Summary results
+summary(lnRR_mod_pharmaceutical)
+
+lnRR_pharmaceutical_mod_results <- mod_results(lnRR_mod_pharmaceutical, mod = "pharmaceutical", data = data, group = "study_id") 
+
+r2_ml(lnRR_mod_pharmaceutical)
+
+```
+
+```{r}
+### *Moderate by pharmaceutical (lnVR)*
+# Model
+lnVR_mod_pharmaceutical <- rma.mv(yi = lnVR,
+                                  V = lnRRVCV,
+                                  random = list(~1 | study_id,
+                                                ~1 | assay_id),
+                                  
+                                  mods = ~pharmaceutical -1,
+                                  method = "REML",
+                                  test = "t", 
+                                  data = data,
+                                  sparse = T)
+
+# Summary results
+summary(lnVR_mod_pharmaceutical)
+
+lnVR_pharmaceutical_mod_results <- mod_results(lnVR_mod_pharmaceutical, mod = "pharmaceutical", data = data, group = "study_id") 
+
+r2_ml(lnVR_mod_pharmaceutical)
+```
+```{r}
+#Moderate by pharmaceutical_class (lnRR)
+lnRR_mod_pharmaceutical_class <- rma.mv(yi = lnRR,
+                                  V = lnRRVCV,
+                                  random = list(~1 | study_id,
+                                                ~1 | assay_id),
+                                  
+                                  mods = ~pharmaceutical_class -1,
+                                  method = "REML",
+                                  test = "t", 
+                                  data = data,
+                                  sparse = T)
+
+# Summary results
+summary(lnRR_mod_pharmaceutical_class)
+
+lnRR_pharmaceutical_class_mod_results <- mod_results(lnRR_mod_pharmaceutical_class, mod = "pharmaceutical_class", data = data, group = "study_id") 
+
+r2_ml(lnRR_mod_pharmaceutical_class)
+
+```
+
+```{r}
+#moderate by pharmaceutical (lnRV)
+lnVR_mod_pharmaceutical_class <- rma.mv(yi = lnVR,
+                                        V = lnVRVCV,
+                                        random = list(~1 | study_id,
+                                                      ~1 | assay_id),
+                                        
+                                        mods = ~pharmaceutical_class -1,
+                                        method = "REML",
+                                        test = "t", 
+                                        data = data,
+                                        sparse = T)
+
+# Summary results
+summary(lnVR_mod_pharmaceutical_class)
+
+lnVR_pharmaceutical_class_mod_results <- mod_results(lnVR_mod_pharmaceutical_class, mod = "pharmaceutical_class", data = data, group = "study_id") 
+
+r2_ml(lnVR_mod_pharmaceutical_class)
+```
+
+```{r}
+#pharmaceutical mechanism of action
+#lnRR
+#model
+lnRR_mod_pharmaceutical_mechanism <- rma.mv(yi = lnRR,
+                                  V = lnRRVCV,
+                                  random = list(~1 | study_id,
+                                                ~1 | assay_id),
+                                  
+                                  mods = ~pharmaceutical_mechanism -1,
+                                  method = "REML",
+                                  test = "t", 
+                                  data = data,
+                                  sparse = T)
+
+# Summary results
+summary(lnRR_mod_pharmaceutical_mechanism)
+
+lnRR_pharmaceutical_mechanism_mod_results <- mod_results(lnRR_mod_pharmaceutical_mechanism, mod = "pharmaceutical_mechanism", data = data, group = "study_id") 
+
+r2_ml(lnRR_mod_pharmaceutical_mechanism)
+
+#figure
+pharmaceutical_mechanism_mod_orchard.lnRR <- orchaRd::orchard_plot(lnRR_mod_pharmaceutical_mechanism,
+                                                        group = "study_id", 
+                                                        xlab = "lnRR",
+                                                        
+                                                        mod = "pharmaceutical_mechanism",
+                                                        g = TRUE,
+                                                        k.pos = "right",
+                                                        colour = FALSE,
+                                                        fill = TRUE,  
+                                                        legend.pos = "none",
+                                                        trunk.size = 3., 
+                                                        branch.size = 1.5,
+                                                        twig.size = 1) +
+  scale_fill_viridis_d(option = "plasma") +  # Ensures enough colors
+  theme(axis.text.y = element_text(angle = 0)) +  # Make y-axis labels straight
+  plot_annotation(tag_levels = "A")
+
+pharmaceutical_mechanism_mod_orchard.lnRR
+
+
+```
+
+```{r}
+#lnVR
+#model
+lnVR_mod_pharmaceutical_mechanism <- rma.mv(yi = lnVR,
+                                  V = lnVRVCV,
+                                  random = list(~1 | study_id,
+                                                ~1 | assay_id),
+                                  
+                                  mods = ~pharmaceutical_mechanism -1,
+                                  method = "REML",
+                                  test = "t", 
+                                  data = data,
+                                  sparse = T)
+
+# Summary results
+summary(lnVR_mod_pharmaceutical_mechanism)
+
+lnVR_pharmaceutical_mechanism_mod_results <- mod_results(lnVR_mod_pharmaceutical_mechanism, mod = "pharmaceutical_mechanism", data = data, group = "study_id") 
+
+r2_ml(lnVR_mod_pharmaceutical_mechanism)
+
+#figure
+pharmaceutical_mechanism_mod_orchard.lnVR <- orchaRd::orchard_plot(lnRR_mod_pharmaceutical_mechanism,
+                                                        group = "study_id", 
+                                                        xlab = "lnVR",
+                                                        
+                                                        mod = "pharmaceutical_mechanism",
+                                                        g = TRUE,
+                                                        k.pos = "right",
+                                                        colour = FALSE,
+                                                        fill = TRUE,  
+                                                        legend.pos = "none",
+                                                        trunk.size = 3., 
+                                                        branch.size = 1.5,
+                                                        twig.size = 1) +
+  scale_fill_viridis_d(option = "plasma") +  # Ensures enough colors
+  theme(axis.text.y = element_text(angle = 0)) +  # Make y-axis labels straight
+  plot_annotation(tag_levels = "A")
+
+pharmaceutical_mechanism_mod_orchard.lnVR
+```
+
+
+```{r}
+### *Figure 4*
+#The moderating effects of pharmaceutical on (A) response magnitude and (B) response variability in immune response. Shorter whiskers represent 95% confidence intervals, while longer whiskers indicate 95% prediction intervals. 'k' represents the number of effect sizes, and the number of studies is in brackets. Each circle corresponds to an effect size, with its size scaled according to precision (inverse sampling error variance).
+# Figure 4A
+pharmaceutical_all_mod_orchard.lnRR <- orchaRd::orchard_plot(lnRR_mod_pharmaceutical,
+                                                        group = "study_id", 
+                                                        xlab = "lnRR",
+                                                        
+                                                        mod = "pharmaceutical",
+                                                        g = TRUE,
+                                                        k.pos = "right",
+                                                        colour = FALSE,
+                                                        fill = TRUE,  
+                                                        legend.pos = "none",
+                                                        trunk.size = 3., 
+                                                        branch.size = 1.5,
+                                                        twig.size = 1) +
+  scale_fill_viridis_d(option = "plasma") +  # Ensures enough colors
+  theme(axis.text.y = element_text(angle = 0)) +  # Make y-axis labels straight
+  plot_annotation(tag_levels = "A")
+
+pharmaceutical_all_mod_orchard.lnRR
+
+# Figure 4B
+pharmaceutical_all_mod_orchard.lnVR <- orchaRd::orchard_plot(lnVR_mod_pharmaceutical,
+                                                             group = "study_id", 
+                                                             xlab = "lnVR",
+                                                             
+                                                             mod = "pharmaceutical",
+                                                             g = TRUE,
+                                                             k.pos = "right",
+                                                             colour = FALSE,
+                                                             fill = TRUE,  
+                                                             legend.pos = "none",
+                                                             trunk.size = 3., 
+                                                             branch.size = 1.5,
+                                                             twig.size = 1) +
+  scale_fill_viridis_d(option = "plasma") +  # Ensures enough colors
+  theme(axis.text.y = element_text(angle = 0)) +  # Make y-axis labels straight
+  plot_annotation(tag_levels = "A")
+
+pharmaceutical_all_mod_orchard.lnVR
+
+```
+```{r}
+### *Moderate by concentration of pharmaceutical (lnRR)*
+# Create dataframe for model with consistent dosage units
+unique_dosage_units <- unique(data$dosage_unit)
+print(unique_dosage_units)
+
+data_dosage_model <- data %>% 
+  filter(dosage != "not reported") %>% 
+  filter(dosage_unit != "not reported") %>% 
+  filter(!dosage_unit %in% c("nm", "um", "nM")) %>%
+  filter(dosage_adm == "waterborne") %>%  # Filter for waterborne exposure
+  mutate(dosage = as.numeric(dosage),
+         dosage_unit = as.character(dosage_unit),
+         dosage_unit_consistent = case_when(
+           dosage_unit == "mg/L" ~ "ug/L", 
+           dosage_unit == "ng/L" ~ "ug/L",
+           dosage_unit == "ppm" ~ "ug/L", 
+           TRUE ~ dosage_unit),
+         dosage_convert_ugL = case_when(
+           dosage_unit == "mg/L" ~ dosage * 1000,
+           dosage_unit == "ng/L" ~ dosage / 1000,
+           dosage_unit == "ppm" ~ dosage*1000, 
+           TRUE ~ dosage)) %>% 
+  filter(!is.na(dosage_convert_ugL)) %>% 
+  mutate(log_dosage_convert_ugL = log(dosage_convert_ugL)) 
+
+# Model (lnRR)
+lnRR_mod_dosage <- rma.mv(yi = lnRR,
+                          V = lnRRVCV,
+                          random = list(~1 | study_id,
+                                        ~1 | assay_id),
+                                        
+                          mods = ~log_dosage_convert_ugL -1,
+                          method = "REML",
+                          test = "t", 
+                          data = data_dosage_model,
+                          sparse = T)
+
+# Summary results 
+summary(lnRR_mod_dosage)
+
+dosage_mod_lnRR_results <- mod_results(lnRR_mod_dosage, mod = "log_dosage_convert_ugL", data = data_dosage_model, group = "study_id")  
+
+r2_lnRR_dosage <- r2_ml(lnRR_mod_dosage, data_dosage_model)
+r2_lnRR_dosage
+```
+
+```{r}
+### *Moderate by concentration of pharmaceutical (lnVR)*
+# Recalculate the VCV matrix based on the new data frame 
+lnVRVCV_dosage <- metafor::vcalc(vi = lnVRv, cluster = exposure_id, obs = assay_id, data = data_dosage_model, rho = 0.5)
+# Regularize the variance-covariance matrix by adding a small value to the diagonal
+lnVRVCV_dosage_smooth <- lnVRVCV_dosage + diag(1e-5, nrow(lnVRVCV_dosage))
+# Make the matrix symmetric by averaging with its transpose
+lnVRVCV_dosage_smooth <- (lnVRVCV_dosage_smooth + t(lnVRVCV_dosage_smooth)) / 2
+
+## Model
+lnVR_mod_dosage <- rma.mv(yi = lnVR,
+                          V = lnVRVCV,
+                          random = list(~1 | study_id,
+                                        ~1 | assay_id),
+                                        
+                          mods = ~log_dosage_convert_ugL -1,
+                          method = "REML",
+                          test = "t", 
+                          data = data_dosage_model,
+                          sparse = T)
+
+# Summary results
+summary(lnVR_mod_dosage)
+
+dosage_mod_lnVR_results <- mod_results(lnVR_mod_dosage, mod = "log_dosage_convert_ugL", data = data_dosage_model, group = "study_id") 
+
+r2_lnVR_dosage <- r2_ml(lnVR_mod_dosage, data_dosage_model)
+r2_lnVR_dosage
+```
+
+```{r}
+### *Moderate by duration of pharmaceutical (lnRR)*
+# Create dataframe for model with consistent duration units
+data_duration_model <- data %>% 
+  filter(!is.na(duration), duration != "not reported") %>%
+  mutate(duration = as.numeric(duration),
+         duration_unit = as.character(duration_unit),
+         duration_unit_consistent = case_when(
+           duration_unit == "minutes" ~ "hours",
+           duration_unit == "days" ~ "hours",
+           duration_unit == "weeks" ~ "hours",
+           TRUE ~ duration_unit),
+         duration_convert = case_when(
+           duration_unit == "minutes" ~ duration/ 60, 
+           duration_unit == "days" ~ duration*24, 
+           duration_unit == "weeks" ~ duration*168,
+           TRUE ~ duration))
+
+
+#if needed
+# Recalculate the VCV matrix based on the new data frame 
+lnRRVCV_duration <- metafor::vcalc(vi = lnRRv, cluster = exposure_id, obs = assay_id, data = data_duration_model, rho = 0.5)
+# Regularize the variance-covariance matrix by adding a small value to the diagonal
+lnRRVCV_duration_smooth <- lnRRVCV_duration + diag(1e-5, nrow(lnRRVCV_duration))
+
+# Model (lnRR)
+lnRR_mod_duration <- rma.mv(yi = lnRR,
+                            V = lnRRVCV,
+                            random = list(~1 | study_id,
+                                          ~1 | assay_id),
+                                          
+                            mods = ~log(duration_convert) -1,
+                            method = "REML",
+                            test = "t", 
+                            data = data_duration_model,
+                            sparse = T)
+
+# Summary results
+summary(lnRR_mod_duration)
+
+duration_mod_lnRR_results <- mod_results(lnRR_mod_duration, mod = "duration_convert", data = data_duration_model, group = "study_id") 
+
+r2_lnRR_duration <- r2_ml(lnRR_mod_duration, data_duration_model)
+r2_lnRR_duration
+```
+```{r}
+### *Moderate by duration of pharmaceutical (lnVR)* 
+# Recalculate the VCV matrix based on the new data frame 
+lnVRVCV_duration <- metafor::vcalc(vi = lnVRv, cluster = exposure_id, obs = assay_id, data = data_duration_model, rho = 0.5)
+# Regularize the variance-covariance matrix by adding a small value to the diagonal
+lnVRVCV_duration_smooth <- lnVRVCV_duration + diag(1e-5, nrow(lnVRVCV_duration))
+# Make the matrix symmetric by averaging with its transpose
+lnVRVCV_duration_smooth <- (lnVRVCV_duration_smooth + t(lnVRVCV_duration_smooth)) / 2
+
+## Model
+lnVR_mod_duration <- rma.mv(yi = lnVR,
+                            V = lnVRVCV,
+                            random = list(~1 | study_id,
+                                          ~1 | assay_id),
+                                          
+                            mods = ~log(duration_convert) -1,
+                            method = "REML",
+                            test = "t", 
+                            data =data_duration_model ,
+                            sparse = T)
+# Summary results
+summary(lnVR_mod_duration)
+
+lnVR_mod_duration_results <- mod_results(lnVR_mod_duration, mod = "duration_convert", data = data_duration_model, group = "study_id") 
+
+r2_lnVR_duration <- r2_ml(lnVR_mod_duration, data_duration_model)
+r2_lnVR_duration
+
+```
+```{r}
+### *Figure 5*
+# Use all pharmaceutical in the dataset
+
+# Create the lnRR_pharmaceutical_orchard object
+lnRR_pharmaceutical_orchard2 <- list(
+  mod_table = lnRR_pharmaceutical_mod_results$mod_table,  # No filtering, use the whole mod_table
+  data = lnRR_pharmaceutical_mod_results$data  # No filtering, use the whole data
+)
+
+# Assign the appropriate classes to the object
+class(lnRR_pharmaceutical_orchard2) <- c("orchard", "data.frame")
+
+# Create the lnVR_pharmaceutical_orchard object
+lnVR_pharmaceutical_orchard2 <- list(
+  mod_table = lnVR_pharmaceutical_mod_results$mod_table,  # No filtering, use the whole mod_table
+  data = lnVR_pharmaceutical_mod_results$data  # No filtering, use the whole data
+)
+class(lnVR_pharmaceutical_orchard2) <- c("orchard", "data.frame")
+
+# Remove rows with missing values in the moderator column (if needed)
+#lnRR_pharmaceutical_orchard2$data <- lnRR_pharmaceutical_orchard2$data %>%
+  #filter(!is.na(moderator))
+
+#lnRR_pharmaceutical_orchard2$mod_table <- lnRR_pharmaceutical_orchard2$mod_table %>%
+  #filter(!is.na(moderator))
+
+# Figure 5a)
+pharmaceutical.mod.lnRR <- orchaRd::orchard_plot(lnRR_pharmaceutical_orchard2,
+                                                 group = "study_id", 
+                                                 xlab = "lnRR",
+                                                 mod = "moderator",  # Use 'moderator' column for pharmaceutical classes
+                                                 k.pos = "right",
+                                                 colour = FALSE,
+                                                 fill = TRUE,  
+                                                 legend.pos = "none",
+                                                 trunk.size = 3, 
+                                                 branch.size = 1.5,
+                                                 twig.size = 1) +
+  scale_fill_viridis_d(option = "plasma") +  # Ensures enough colors
+  theme(axis.text.y = element_text(angle = 0)) +  # Make y-axis labels straight
+  plot_annotation(tag_levels = "A")
+
+# Display the plot
+pharmaceutical.mod.lnRR
+
+### *Figure 4b (for lnVR)*
+
+# Create the lnVR_pharmaceutical_orchard object
+lnVR_pharmaceutical_orchard2 <- list(
+  mod_table = lnVR_pharmaceutical_mod_results$mod_table,  # Use the whole mod_table for lnVR
+  data = lnVR_pharmaceutical_mod_results$data  # Use the whole data for lnVR
+)
+
+# Assign the appropriate classes to the object
+class(lnVR_pharmaceutical_orchard2) <- c("orchard", "data.frame")
+
+
+# Plot the same graph for lnVR
+pharmaceutical.mod.lnVR <- orchaRd::orchard_plot(lnVR_pharmaceutical_orchard2,
+                                                 group = "study_id", 
+                                                 xlab = "lnVR",
+                                                 mod = "moderator",  # Use 'moderator' column for pharmaceutical classes
+                                                 k.pos = "right",
+                                                 colour = FALSE,
+                                                 fill = TRUE,  
+                                                 legend.pos = "none",
+                                                 trunk.size = 3, 
+                                                 branch.size = 1.5,
+                                                 twig.size = 1) +
+  scale_fill_viridis_d(option = "plasma") +  # Ensures enough colors
+  theme(axis.text.y = element_text(angle = 0)) +  # Make y-axis labels straight
+  plot_annotation(tag_levels = "A")
+
+
+# Display the plot for lnVR
+pharmaceutical.mod.lnVR
+
+# Figure 5c)
+dosage_bubble_plot.lnRR <- bubble_plot(dosage_mod_lnRR_results, mod = "log_dosage_convert_ugL", group = "study_id", x = "dosage_convert_ugL",
+                                       y = "lnRR", est.lwd = 1, legend.pos = "bottom.right", k.pos = "bottom.left",
+                                       ci.col = "red", pi.col = "black", est.col = "black", g = TRUE) + annotate(geom = "text",
+                                                                                                                 x = 7, y = 5.8, label = paste0("italic(R)^{2} == ", round(r2_lnRR_dosage[1], 4)), color = "black",
+                                                                                                                 parse = TRUE, size = 4)  + 
+  ggtitle("") + 
+  theme(plot.title = element_text(size = 18),
+        legend.position = "none", axis.title.x = element_text(size = 16), axis.title.y = element_text(size = 16),
+        axis.text.y = element_text(size = 14), axis.text.x = element_text(size = 14)) +
+  xlab("Dosage")
+
+dosage_bubble_plot.lnRR
+
+# Figure 5d)
+dosage_bubble_plot.lnVR <- bubble_plot(dosage_mod_lnVR_results, mod = "log_dosage_convert_ugL", group = "study_id", x = "dosage_convert_ugL",
+                                       y = "lnVR", est.lwd = 1, legend.pos = "bottom.right", k.pos = "bottom.left",
+                                       ci.col = "red", pi.col = "black", est.col = "black", g = TRUE) + annotate(geom = "text",
+                                                                                                                 x = 7, y = 5.8, label = paste0("italic(R)^{2} == ", round(r2_lnVR_dosage[1], 4)), color = "black",
+                                                                                                                 parse = TRUE, size = 4)  + 
+  ggtitle("") + 
+  theme(plot.title = element_text(size = 18),
+        legend.position = "none", axis.title.x = element_text(size = 16), axis.title.y = element_text(size = 16),
+        axis.text.y = element_text(size = 14), axis.text.x = element_text(size = 14)) +
+  xlab("Dosage")
+dosage_bubble_plot.lnVR
+
+# Figure 5e)
+duration_bubble_plot.lnRR <- bubble_plot(duration_mod_lnRR_results, mod = "duration_convert", group = "study_id", x = "duration_convert",
+                                         y = "lnRR", est.lwd = 1, legend.pos = "bottom.right", k.pos = "bottom.left",
+                                         ci.col = "red", pi.col = "black", est.col = "black", g = TRUE) +  annotate(geom = "text", x =2800, y =1.3, 
+                                                                                                                    label = paste0("italic(R)^{2} == ", round(r2_lnRR_duration[1], 4)), color = "black",
+                                                                                                                    parse = TRUE, size = 4)  + 
+  ggtitle("") + 
+  theme(plot.title = element_text(size = 18),
+        legend.position = "none", axis.title.x = element_text(size = 16), axis.title.y = element_text(size = 16),
+        axis.text.y = element_text(size = 14), axis.text.x = element_text(size = 14)) +
+  xlab("Duration")
+
+duration_bubble_plot.lnRR
+
+# Figure 5f)
+duration_bubble_plot.lnVR <- bubble_plot(lnVR_mod_duration_results, mod = "duration_convert", group = "study_id", x = "duration_convert",
+                                         y = "lnVR", est.lwd = 1, legend.pos = "bottom.right", k.pos = "bottom.left",
+                                         ci.col = "red", pi.col = "black", est.col = "black", g = TRUE) + 
+  annotate(geom = "text",x =2800, y =2.1, 
+           label = paste0("italic(R)^{2} == ", round(r2_lnVR_duration[1], 4)), color = "black",
+           parse = TRUE, size = 4)  + 
+  ggtitle("") + 
+  theme(plot.title = element_text(size = 18),
+        legend.position = "none", axis.title.x = element_text(size = 16), axis.title.y = element_text(size = 16),
+        axis.text.y = element_text(size = 14), axis.text.x = element_text(size = 14)) +
+  xlab("Duration")
+
+duration_bubble_plot.lnVR
+
+```
+
+```{r}
+## **Species characteristics**
+### *Moderate by species (lnRR)*
+# Model
+lnRR_mod_species <- rma.mv(yi = lnRR,
+                           V = lnRRVCV,
+                           random = list(~1 | study_id,
+                                         ~1 | assay_id
+                                         ),
+                           mods = ~species_latin -1,
+                           method = "REML",
+                           test = "t", 
+                           data = data,
+                           sparse = T)
+
+# Summary results
+summary(lnRR_mod_species)
+
+r2_ml(lnRR_mod_species)
+
+
+lnRR_species_mod_results <- mod_results(lnRR_mod_species, mod = "species_latin", data = data, group = "study_id")  
+
+```
+
+```{r}
+### *Moderate by species (lnVR)*
+# Make the matrix symmetric by averaging it with its transpose
+lnVRVCV_symmetric <- (lnVRVCV + t(lnVRVCV)) / 2
+# Regularize the matrix by adding a small constant to the diagonal
+lnVRVCV_symmetric <- lnVRVCV_symmetric + diag(1e-5, nrow(lnVRVCV_symmetric))
+
+##Model
+lnVR_mod_species <- rma.mv(yi = lnVR,
+                           V = lnVRVCV,  # Use the symmetric matrix
+                           random = list(~1 | study_id,
+                                         ~1 | assay_id),
+                           mods = ~species_latin -1,
+                           method = "REML",
+                           test = "t", 
+                           data = data,
+                           sparse = T)
+
+
+# Summary results
+summary(lnVR_mod_species)
+
+lnVR_species_mod_results <- mod_results(lnVR_mod_species, mod = "species_latin", data = data, group = "study_id")
+
+r2_ml(lnVR_mod_species)
+```
+```{r}
+#Moderate by fish_family
+#Model lnRR
+# Model
+lnRR_mod_fish_family <- rma.mv(yi = lnRR,
+                           V = lnRRVCV,
+                           random = list(~1 | study_id,
+                                         ~1 | assay_id
+                           ),
+                           mods = ~fish_family -1,
+                           method = "REML",
+                           test = "t", 
+                           data = data,
+                           sparse = T)
+
+# Summary results
+summary(lnRR_mod_fish_family)
+
+r2_ml(lnRR_mod_fish_family)
+
+
+lnRR_family_mod_results <- mod_results(lnRR_mod_fish_family, mod = "fish_family", data = data, group = "study_id")  
+
+```
+
+```{r}
+#lnRV
+# Model
+lnVR_mod_fish_family <- rma.mv(yi = lnVR,
+                               V = lnVRVCV,
+                               random = list(~1 | study_id,
+                                             ~1 | assay_id
+                               ),
+                               mods = ~fish_family -1,
+                               method = "REML",
+                               test = "t", 
+                               data = data,
+                               sparse = T)
+
+# Summary results
+summary(lnVR_mod_fish_family)
+
+r2_ml(lnVR_mod_fish_family)
+
+
+lnVR_family_mod_results <- mod_results(lnVR_mod_fish_family, mod = "fish_family", data = data, group = "study_id")  
+
+
+```
+
+```{r}
+# Figure 6A)
+species_all_mod_orchard.lnRR <- orchaRd::orchard_plot(lnRR_mod_species,
+                                                      group = "study_id", 
+                                                      xlab = "lnRR",
+                                                      
+                                                      mod = "species_latin",
+                                                      g = TRUE,
+                                                      k.pos = "right",
+                                                      colour = FALSE,
+                                                      fill = TRUE,  
+                                                      legend.pos = "none",
+                                                      trunk.size = 3., 
+                                                      branch.size = 1.5,
+                                                      twig.size = 1) +
+  scale_fill_viridis_d(option = "plasma") +  # Ensures enough colors
+  theme(axis.text.y = element_text(angle = 0)) +  # Make y-axis labels straight
+  plot_annotation(tag_levels = "A")
+
+
+# Figure 6B)
+species_all_mod_orchard.lnVR <- orchaRd::orchard_plot(lnVR_mod_species,
+                                                      group = "study_id", 
+                                                      xlab = "lnVR",
+                                                      
+                                                      mod = "species_latin",
+                                                      g = TRUE,
+                                                      k.pos = "right",
+                                                      colour = FALSE,
+                                                      fill = TRUE,  
+                                                      legend.pos = "none",
+                                                      trunk.size = 3., 
+                                                      branch.size = 1.5,
+                                                      twig.size = 1) +
+  scale_fill_viridis_d(option = "plasma") +  # Ensures enough colors
+  theme(axis.text.y = element_text(angle = 0)) +  # Make y-axis labels straight
+  plot_annotation(tag_levels = "A")
+
+species_all_mod_orchard <- species_all_mod_orchard.lnRR + species_all_mod_orchard.lnVR
+
+print(species_all_mod_orchard)
+
+```
+
+```{r}
+#moderate by sex
+#lnRR
+# Model
+lnRR_mod_sex <- rma.mv(yi = lnRR,
+                           V = lnRRVCV,
+                           random = list(~1 | study_id,
+                                         ~1 | assay_id
+                           ),
+                           mods = ~sex -1,
+                           method = "REML",
+                           test = "t", 
+                           data = data,
+                           sparse = T)
+
+# Summary results
+summary(lnRR_mod_sex)
+
+r2_ml(lnRR_mod_sex)
+
+lnRR_species_mod_results <- mod_results(lnRR_mod_sex, mod = "sex", data = data, group = "study_id")  
+
+```
+
+```{r}
+#lnVR
+##Model
+lnVR_mod_sex <- rma.mv(yi = lnVR,
+                           V = lnVRVCV,
+                           random = list(~1 | study_id,
+                                         ~1 | assay_id),
+                           mods = ~sex -1,
+                           method = "REML",
+                           test = "t", 
+                           data = data,
+                           sparse = T)
+
+
+# Summary results
+summary(lnVR_mod_sex)
+
+lnVR_species_mod_results <- mod_results(lnVR_mod_sex, mod = "sex", data = data, group = "study_id")
+
+r2_ml(lnVR_mod_sex)
+
+
+```
+
+```{r}
+#moderate by age
+#lnRR
+# Model
+lnRR_mod_age <- rma.mv(yi = lnRR,
+                       V = lnRRVCV,
+                       random = list(~1 | study_id,
+                                     ~1 | assay_id
+                       ),
+                       mods = ~age -1,
+                       method = "REML",
+                       test = "t", 
+                       data = data,
+                       sparse = T)
+
+# Summary results
+summary(lnRR_mod_age)
+
+r2_ml(lnRR_mod_age)
+
+lnRR_species_mod_results <- mod_results(lnRR_mod_age, mod = "age", data = data, group = "study_id")  
+
+```
+
+```{r}
+#lnVR
+##Model
+lnVR_mod_age <- rma.mv(yi = lnVR,
+                       V = lnVRVCV,
+                       random = list(~1 | study_id,
+                                     ~1 | assay_id),
+                       mods = ~age -1,
+                       method = "REML",
+                       test = "t", 
+                       data = data,
+                       sparse = T)
+
+
+# Summary results
+summary(lnVR_mod_age)
+
+lnVR_species_mod_results <- mod_results(lnVR_mod_age, mod = "age", data = data, group = "study_id")
+
+r2_ml(lnVR_mod_age)
+```
+
+```{r}
+## Interaction models
+#Do different pharmaceuticals affect specific immune traits differently?
+#Moderators: pharmaceutical x immune_trait_category
+
+#lnRR
+# Model
+lnRR_mod_pharma_immune <- rma.mv(yi = lnRR,
+                       V = lnRRVCV,
+                       random = list(~1 | study_id,
+                                     ~1 | assay_id
+                       ),
+                       mods = ~ pharmaceutical_class * immune_category_high,
+                       method = "REML",
+                       test = "t", 
+                       data = data,
+                       sparse = T)
+
+# Summary results
+summary(lnRR_mod_pharma_immune)
+
+r2_ml(lnRR_mod_pharma_immune)
+
+```
+
+```{r}
+#lnVR
+# Model
+lnVR_mod_pharma_immune <- rma.mv(yi = lnVR,
+                       V = lnVRVCV,
+                       random = list(~1 | study_id,
+                                     ~1 | assay_id
+                       ),
+                       mods = ~ pharmaceutical_class * immune_category_high,
+                       method = "REML",
+                       test = "t", 
+                       data = data,
+                       sparse = T)
+
+# Summary results
+summary(lnVR_mod_pharma_immune)
+
+r2_ml(lnVR_mod_pharma_immune)
+```
+
+```{r}
+#Do different fish families respond differently to pharmaceutical exposure?
+#Moderators: pharmaceutical_class x fish_family
+
+#lnRR
+# Model
+lnRR_mod_pharma_species <- rma.mv(yi = lnRR,
+                       V = lnRRVCV,
+                       random = list(~1 | study_id,
+                                     ~1 | assay_id
+                       ),
+                       mods = ~ pharmaceutical_class * fish_family,
+                       method = "REML",
+                       test = "t", 
+                       data = data,
+                       sparse = T)
+
+# Summary results
+summary(lnRR_mod_pharma_family)
+
+r2_ml(lnRR_mod_pharma_family)
+```
+
+```{r}
+#lnVR
+# Model
+lnVR_mod_pharma_family <- rma.mv(yi = lnVR,
+                       V = lnVRVCV,
+                       random = list(~1 | study_id,
+                                     ~1 | assay_id
+                       ),
+                       mods = ~ pharmaceutical_class * fish_family,
+                       method = "REML",
+                       test = "t", 
+                       data = data,
+                       sparse = T)
+
+# Summary results
+summary(lnVR_mod_pharma_family)
+
+r2_ml(lnVR_mod_pharma_family)
+```
+
+
+```{r}
+#Are certain immune traits more or less sensitive in specific families?	
+#Moderators: immune_category_high x fish_family
+
+
+#lnRR
+# Model
+lnRR_mod_immune_family <- rma.mv(yi = lnRR,
+                       V = lnRRVCV,
+                       random = list(~1 | study_id,
+                                     ~1 | assay_id
+                       ),
+                       mods = ~ immune_category_high * fish_family,
+                       method = "REML",
+                       test = "t", 
+                       data = data,
+                       sparse = T)
+
+# Summary results
+summary(lnRR_mod_immune_family)
+
+r2_ml(lnRR_mod_immune_family)
+```
+
+```{r}
+#Are certain immune traits more or less sensitive in specific families?	
+#Moderators: immune_category_high x fish_family
+#lnVR
+# Model
+lnVR_mod_immune_family <- rma.mv(yi = lnVR,
+                       V = lnVRVCV,
+                       random = list(~1 | study_id,
+                                     ~1 | assay_id
+                       ),
+                       mods = ~ immune_category_high * fish_family,
+                       method = "REML",
+                       test = "t", 
+                       data = data,
+                       sparse = T)
+
+# Summary results
+summary(lnVR_mod_immune_family)
+
+r2_ml(lnVR_mod_immune_family)
+```
+
+
+```{r}
+# **Model selection and multi-model inference**
+## *lnRR model selection and multi-model inference*
+
+# Create a data frame with only the required columns
+dosage_duration_set <- data.frame(
+  dosage_convert_ugL = data_dosage_model$dosage_convert_ugL,
+  duration_convert = data_duration_model$duration_convert
+)
+
+# Bind these columns to `data`
+data <- cbind(data, dosage_duration_set)
+
+#Model
+mlmr.full.lnRR <- rma.mv(yi = lnRR, 
+                         V = lnRRVCV, 
+                         random = list(~1 | study_id,
+                                       ~1 | assay_id),
+                         mods = ~ immune_category_high + pharmaceutical_class + fish_family + age                          + dosage_convert_ugL + duration_convert + sex,
+                         method = "ML", 
+                         test = "t", 
+                         data = data, 
+                         sparse = T)
+
+r2_ml(mlmr.full.lnRR, data = data)
+
+eval(metafor:::.MuMIn)  # use eval() function to extract helper functions from MuMIn and make them usable in metafor.
+
+mlmr.dredge.lnRR <- dredge(mlmr.full.lnRR, beta = "none", evaluate = TRUE, rank = "AICc", trace=2)
+
+# multimodel inference
+summary(mlmr.full.lnRR)
+
+# Select "best" models based on delta <= 2
+best_model <- subset(mlmr.dredge.lnRR, delta <= 2, recalc.weights = FALSE)
+
+# Display the results in a scrollable kable table
+best_model %>%
+  kable("html") %>%
+  kable_styling("bordered", position = "left") %>%
+  scroll_box(width = "100%", height = "800px")
+
+# Relative importance values for the predictors
+weights_lnRR <- sw(mlmr.dredge.lnRR)
+
+# Convert the named vector into a data frame
+weights_lnRR_df <- data.frame(
+  predictor = names(weights_lnRR),  
+  weight = as.numeric(weights_lnRR), 
+  R2_marginal = c(0.06186404, 0.1159393, 0.05213314, 0.0009492296, 0.01024729, 0.04245088, 0.0555282)
+)
+
+```
+
+```{r}
+### *Figure 6*
+# lnRR model selection plot
+weights_lnRR_plot <- weights_lnRR_df %>%
+  ggplot(aes(x = reorder(predictor, weight), y = weight)) +
+  geom_col(width = 0.8, alpha = 0.7) +
+  coord_flip() + 
+  scale_y_continuous(
+    limits = c(0, 1.2),
+    breaks = seq(0, 1, by = 0.2),
+    expand = c(0, 0)
+  ) +
+  geom_text(aes(label = scales::percent(weight, accuracy = 1)), 
+            size = 6, position = position_stack(vjust = 0.5), 
+            color = "white", fontface = "bold") +
+  geom_text(aes(y = 1.1,label = paste0("R2 = ", round(R2_marginal, 2))), 
+            size = 4, 
+            fontface = "italic", 
+            color = "red") +
+  theme_bw() +
+  guides(size = "none") +
+  theme(
+    legend.position = "none",
+    axis.text = element_text(color = "black"),
+    axis.title = element_text(face = "bold", color = "black"),
+    plot.caption = element_text(size = 10, color = "gray10", face = "italic")
+  ) +
+  labs(
+    y = "Akaike Weights",
+    x = "Moderators",
+    tag = "A"
+  ) +
+  scale_x_discrete(labels = c("fish_family", "pharmaceutical_class", "sex", "duration", "age", "dosage", "immune_category_high"))
+
+weights_lnRR_plot
+```
+
+```{r}
+#Model lnVR
+mlmr.full.lnVR <- rma.mv(yi = lnVR, 
+                         V = lnVRVCV, 
+                         random = list(~1 | study_id,
+                                       ~1 | assay_id),
+                         mods = ~ immune_trait_category + pharmaceutical + species_latin + age +
+                           dosage_convert_ugL + duration_convert + sex,
+                         method = "ML", 
+                         test = "t", 
+                         data = data, 
+                         sparse = TRUE)
+
+r2_ml(mlmr.full.lnVR, data = data)
+
+eval(metafor:::.MuMIn)  # use eval() to extract helper functions from MuMIn and make them usable in metafor.
+
+mlmr.dredge.lnVR <- dredge(mlmr.full.lnVR, beta = "none", evaluate = TRUE, rank = "AICc", trace = 2)
+
+# Multimodel inference
+summary(mlmr.full.lnVR)
+
+# Select "best" models based on delta <= 2
+best_model_vr <- subset(mlmr.dredge.lnVR, delta <= 2, recalc.weights = FALSE)
+
+# Display the results in a scrollable kable table
+best_model_vr %>%
+  kable("html") %>%
+  kable_styling("bordered", position = "left") %>%
+  scroll_box(width = "100%", height = "800px")
+
+# Relative importance values for the predictors
+weights_lnVR <- sw(mlmr.dredge.lnVR)
+
+# Convert the named vector into a data frame
+weights_lnVR_df <- data.frame(
+  predictor = names(weights_lnVR),  
+  weight = as.numeric(weights_lnVR),
+  R2_marginal = c(0.335, 0.082, 0.007, 0.008, 0.0008, 0.029, 0.157)
+  
+)
+
+```
+
+```{r}
+# lnVR model selection plot
+weights_lnVR_plot <- weights_lnVR_df %>% 
+  ggplot(aes(x = reorder(predictor, weight), y = weight)) +
+  geom_col(width = 0.8, alpha = 0.7) +
+  coord_flip() + 
+  scale_y_continuous(
+    limits = c(0, 1.2),  
+    breaks = seq(0, 1, by = 0.2),
+    expand = c(0, 0)
+  ) +
+  geom_text(aes(label = scales::percent(weight, accuracy = 1)), 
+            size = 6, position = position_stack(vjust = 0.5), 
+            color = "white", fontface = "bold") +
+  geom_text(aes(y = 1.1, label = paste0("R2 = ", round(R2_marginal, 2))), 
+            size = 4, 
+            fontface = "italic", 
+            color = "red") +
+  theme_bw() +
+  guides(size = "none") +
+  theme(
+    legend.position = "none",
+    axis.text = element_text(color = "black"),
+    axis.title = element_text(face = "bold", color = "black"),
+    plot.caption = element_text(size = 10, color = "gray10", face = "italic")
+  ) +
+  labs(
+    caption = "The value in each bar is the relative importance of each moderator based on Akaike weights",
+    y = "Akaike Weights",
+    x = "Moderators",
+    tag = "B"
+  ) +
+  scale_x_discrete(labels = c("pharmaceutical", "age", "species_latin", "dosage_convert_ugL", "sex", "duration_convert", "immune_trait_category"
+  ))
+
+weights_lnVR_plot
+
+# Figure 7
+main_text_figure_7 <- weights_lnRR_plot/weights_lnVR_plot
+
+print(main_text_figure_7)
+```
+
+```{r}
+# **Publication bias**
+
+## *Figure 8*
+#A funnel plot illustrating the distribution of study effect sizes in the meta-analysis. The symmetry of the plot suggests the absence of publication bias.
+# Set up a PNG device with desired dimensions and resolution
+# png(filename = "funnel_plot.png", width = 800, height = 600, res = 150)
+
+# Create the funnel plot with gray points
+funnel_fig <- funnel(
+  lnRR_intercept_only,
+  yaxis = "seinv",
+  level = c(90, 95),
+  shade = c("white", "gray30"),
+  back = "#EBEBEB",
+  legend = FALSE,
+  ylab = "Precision (1/SE)",
+  cex.lab = 1.5,
+  digits = 1,
+  xlim = c(-5, 5),
+  pch = 21,         
+  col = "gray",  
+  bg = "black"     
+)
+
+# fig_funnel <- recordPlot()
+# invisible(dev.off())
+
+print(funnel_fig)
+```
+
+```{r}
+#Egger's Regression
+# Model
+eggers_regression <- rma.mv(yi = lnRR,
+                            V = lnRRVCV,
+                            random = list(~1 | study_id,
+                                          ~1 | assay_id),
+                            mods = ~sqrt(lnRRv) ,
+                            method = "REML",
+                            test = "t", 
+                            data = data,
+                            sparse = T)
+
+# Summary
+summary(eggers_regression)
+
+#Trim-and-fill Analysis
+trimfill_model <- rma(yi = lnRR,
+                 vi = lnRRv,
+                 method = "REML",
+                 data = data)
+
+tf <- trimfill(trimfill_model)
+summary(tf)
+funnel(tf)
+
+```
+
+```{r}
+### *Figure 9*
+#A plot showing the moderating effect of standard error on lnRR. The thick black lines show the prediction from the uni-moderator models with their associated 95% confidence interval (darker shaded area) and 95% prediction interval (lighter shaded area).
+
+# Prepare data for Egger's regression plot
+egger_pred <- predict.rma(eggers_regression)
+data <- data %>%
+  mutate(
+    fit = egger_pred$pred,
+    ci.lb = egger_pred$ci.lb,
+    ci.ub = egger_pred$ci.ub,
+    pr.lb = egger_pred$cr.lb,
+    pr.ub = egger_pred$cr.ub
+  )
+
+#Figure 9
+# Create Egger's regression plot
+egger_fig <- ggplot(data, aes(x = sqrt(lnRRv), y = lnRR)) +
+  geom_ribbon(aes(ymin = pr.lb, ymax = pr.ub), alpha = 0.1, fill = "gray") +
+  geom_ribbon(aes(ymin = ci.lb, ymax = ci.ub), alpha = 0.3, fill = "gray") +
+  geom_point(size = 2, shape = 21, alpha = 0.7, fill = RColorBrewer::brewer.pal(n = 8, name = "Dark2")[1], col = "gray25", stroke = 1) +
+  geom_line(aes(y = fit), size = 1.2) +
+  labs(x = "Standard Error", y = "lnRR") +
+  theme_bw() +
+  geom_hline(yintercept = 0, linetype = 2, colour = "black", alpha = 0.5) +
+  theme(
+    text = element_text(size = 18, colour = "black", hjust = 0.5),
+    legend.text = element_text(size = 14),
+    legend.position = c(0, 0),
+    legend.justification = c(0, 0),
+    legend.background = element_blank(),
+    legend.direction = "horizontal",
+    legend.title = element_text(size = 15),
+    panel.border = element_rect(colour = "black", fill = NA, size = 1.2)
+  )
+
+print(egger_fig)
+
+```
+
+```{r}
+## *Time lag bias*
+# Model
+time_lag_bias_model <- rma.mv(yi = lnRR,
+                              V = lnRRVCV,
+                              random = list(~1 | study_id,
+                                            ~1 | assay_id),
+                              mods = ~ year ,
+                              method = "REML",
+                              test = "t", 
+                              data = data,
+                              sparse = T)
+
+# Summary stats
+summary(time_lag_bias_model)
+
+lnRR_mod_time_lag_results <- mod_results(time_lag_bias_model, mod = "year", data = data, group = "study_id")  
+
+
+r2_lnRR_time_lag <- r2_ml(time_lag_bias_model, data)
+
+
+# Calculate R^2 value
+r2_lnRR_time_lag <- r2_ml(time_lag_bias_model, data)
+
+# Set minimum year for x-axis limit
+min_year <- min(data$year, na.rm = TRUE)
+
+```
+
+```{r}
+## *Figure 10*
+#A bubble plot showing the moderating effect of publication year on lnRR. The thick black lines show the prediction from the uni-moderator models with their associated 95% confidence interval (red dotted line) and 95% prediction interval (black dotted line).
+
+# Create bubble plot and save as ggplot object
+time_lag_bias <- bubble_plot(
+  lnRR_mod_time_lag_results,
+  mod = "year",
+  group = "study_id",
+  
+  x = "pub_year",
+  y = "lnRR",
+  est.lwd = 1,
+  legend.pos = "bottom.right",
+  k.pos = "bottom.left",
+  ci.col = "red",
+  pi.col = "black",
+  est.col = "black",
+  g = TRUE
+) +
+  annotate(
+    geom = "text",
+    x = min_year + 2,
+    y = max(data$lnRR, na.rm = TRUE) + 0.2,
+    label = paste0("italic(R)^{2} ==", round(r2_lnRR_time_lag[1], 5)),
+    color = "black",
+    parse = TRUE,
+    size = 4
+  ) +
+  geom_point(size = 2, color = "gray25", fill = "blue", shape = 21, alpha = 0.7, stroke = 1) +
+  geom_line(color = "blue", size = 1.2) +
+  ggtitle("") +
+  theme(
+    plot.title = element_text(size = 18),
+    legend.position = "none",
+    axis.title.x = element_text(size = 16),
+    axis.title.y = element_text(size = 16),
+    axis.text.y = element_text(size = 14),
+    axis.text.x = element_text(size = 14)
+  ) +
+  xlab("Publication Year") +
+  scale_x_continuous(limits = c(min_year, max(data$year, na.rm = TRUE)))
+
+print(time_lag_bias)
+
+```
+
+```{r}
+# **Sensitivity Analysis** 
+
+## *Leave-one-out analysis*
+
+### *Leave one study out*
+
+#### *Intercept only model (lnRR)*
+
+data$leave_study <- as.factor(data$study_id)
+
+### create a list to contain model estimates
+leave_study_out_model_lnRR <- list()
+VCV_leave_study_out_lnRR <- list()
+
+# Save as .Rds file
+# saveRDS(leave_study_out_model_lnRR, file = here("R.data", "leave_study_out_model_lnRR.Rds"))
+
+# Load from .Rds file
+#leave_study_out_model_lnRR <- readRDS(here("R.data", "leave_study_out_model_lnRR.Rds"))
+
+# Save as .Rdata file
+# save(leave_study_out_model_lnVR, file = here("R.data", "leave_study_out_model_lnVR.Rdata"))
+
+# Load from .Rdata file
+#load(here("R.data", "leave_study_out_model_lnVR.Rdata"))
+
+
+### repeatedly run the multilevel model, leaving out one study at a time
+for(i in 1:length(levels(data$leave_study))){
+  ### create the data with one study removed at a time
+  data_study_leave <- data %>% filter(leave_study != levels(data$leave_study)[i])
+  
+  ### create a list of VCV matrices for following model fitting
+  VCV_leave_study_out_lnRR[[i]] <- impute_covariance_matrix(vi = data_study_leave$lnRRv, cluster = data_study_leave$study_id, r = 0.5)
+  
+  ### model fitting
+  leave_study_out_model_lnRR[[i]] <- rma.mv(yi = lnRR, V = VCV_leave_study_out_lnRR[[i]], 
+                                            random = list(~1 | study_id,
+                                                          ~1 | assay_id),
+                                            method = "REML", 
+                                            test = "t",
+                                            data = data_study_leave,
+                                            sparse = TRUE)
+}
+
+results.leave_study_out_model_lnRR <- as.data.frame(cbind(
+  sapply(leave_study_out_model_lnRR, function(x) summary(x)$beta), 
+  sapply(leave_study_out_model_lnRR, function(x) summary(x)$se),   
+  sapply(leave_study_out_model_lnRR, function(x) summary(x)$zval), 
+  sapply(leave_study_out_model_lnRR, function(x) summary(x)$pval), 
+  sapply(leave_study_out_model_lnRR, function(x) summary(x)$ci.lb),
+  sapply(leave_study_out_model_lnRR, function(x) summary(x)$ci.ub) 
+))
+
+colnames(results.leave_study_out_model_lnRR) <- c("Estimate", "SE", "zval", "pval", "ci.lb", "ci.ub")
+results.leave_study_out_model_lnRR$study_id <- unique(data$study_id)
+
+# Display the results table
+kable(results.leave_study_out_model_lnRR) %>%
+  kable_styling("striped", position = "left") %>%
+  scroll_box(width = "100%", height = "500px")
+
+#Leave one study out lnRR plot
+leave_one_study_out_lnRR_forest_plot <- ggplot(results.leave_study_out_model_lnRR, 
+                                               aes(x = fct_reorder(as.factor(study_id), Estimate), 
+                                                   y = Estimate, 
+                                                   ymin = ci.lb, 
+                                                   ymax = ci.ub)) +
+  geom_pointrange() +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  theme_bw() +
+  theme(legend.position = "none",
+        axis.text = element_text(color = "black"),
+        axis.title = element_text(face = "bold", color = "black"),
+        plot.caption = element_text(size = 10, color = "gray10", face = "italic"),
+        axis.text.y = element_text(size = 8)) +
+  labs(caption = "The value in each point is the point estimate excluding one study at a time",
+       x = "Study ID",
+       y = "lnRR") +
+  ylim(-0.6, 0.2) +
+  coord_flip()
+
+print(leave_one_study_out_lnRR_forest_plot)
+
+# ggsave(here("figures", "leave_one_study_out_lnRR_forest_plot.pdf"), width = 10, height = 10, units = "cm", scale = 2, dpi = 800)
+# ggsave(here("figures", "leave_one_study_out_lnRR_forest_plot.jpg"), width = 10, height = 10, units = "cm", scale = 2, dpi = 800)
+
+
+results.leave_study_out_model_lnRR %>% 
+  summarise(estimate = mean(Estimate), # calculate the mean coefficients across the models generated
+            se = mean(SE), 
+            zval = mean(zval), 
+            pval = mean(pval), 
+            ci.lb = mean(ci.lb), 
+            ci.ub = mean(ci.ub)) %>% 
+  kable() %>% kable_styling("striped", position = "left")
+
+```
+
+```{r}
+#### *Intercept only model (lnVR)*
+
+data$leave_study <- as.factor(data$study_id)
+
+### create a list to contain model estimates
+leave_study_out_model_lnVR <- list()
+VCV_leave_study_out_lnVR <- list()
+
+# save to save time - running this model is time-consuming
+
+# Save as .Rds file
+# saveRDS(leave_study_out_model_lnVR, file = here("R.data", "leave_study_out_model_lnVR.Rds"))
+
+# Load from .Rds file
+#leave_study_out_model_lnVR <- readRDS(here("R.data", "leave_study_out_model_lnVR.Rds"))
+
+
+# Save as .Rdata file
+# save(leave_study_out_model_lnVR, file = here("R.data", "leave_study_out_model_lnVR.Rdata"))
+
+# Load from .Rdata file
+#load(here("R.data", "leave_study_out_model_lnVR.Rdata"))
+
+
+### repeatedly run the multilevel model, leaving out one study at a time
+for(i in 1:length(levels(data$leave_study))){
+  data_study_leave <- data %>% filter(leave_study != levels(data$leave_study)[i])
+  
+  VCV_leave_study_out_lnVR[[i]] <- impute_covariance_matrix(vi = data_study_leave$lnVRv, cluster = data_study_leave$study_id, r = 0.5)
+  
+  leave_study_out_model_lnVR[[i]] <- rma.mv(yi = lnVR, V = VCV_leave_study_out_lnVR[[i]], 
+                                            random = list(~1 | study_id,
+                                                          ~1 | assay_id),
+                                            method = "REML", 
+                                            test = "t",
+                                            data = data_study_leave,
+                                            sparse = TRUE)
+}
+
+results.leave_study_out_model_lnVR <- as.data.frame(cbind(
+  sapply(leave_study_out_model_lnVR, function(x) summary(x)$beta), 
+  sapply(leave_study_out_model_lnVR, function(x) summary(x)$se),  
+  sapply(leave_study_out_model_lnVR, function(x) summary(x)$zval),
+  sapply(leave_study_out_model_lnVR, function(x) summary(x)$pval), 
+  sapply(leave_study_out_model_lnVR, function(x) summary(x)$ci.lb),
+  sapply(leave_study_out_model_lnVR, function(x) summary(x)$ci.ub) 
+))
+
+colnames(results.leave_study_out_model_lnVR) <- c("Estimate", "SE", "zval", "pval", "ci.lb", "ci.ub")
+results.leave_study_out_model_lnVR$study_id <- unique(data$study_id)
+
+# Display the results table
+kable(results.leave_study_out_model_lnVR) %>%
+  kable_styling("striped", position = "left") %>%
+  scroll_box(width = "100%", height = "500px")
+
+leave_one_study_out_lnVR_forest_plot <- ggplot(results.leave_study_out_model_lnVR, 
+                                               aes(x = fct_reorder(as.factor(study_id), Estimate), 
+                                                   y = Estimate, 
+                                                   ymin = ci.lb, 
+                                                   ymax = ci.ub)) +
+  geom_pointrange() +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  theme_bw() +
+  theme(legend.position = "none",
+        axis.text = element_text(color = "black"),
+        axis.title = element_text(face = "bold", color = "black"),
+        plot.caption = element_text(size = 10, color = "gray10", face = "italic"),
+        axis.text.y = element_text(size = 8)) +
+  labs(caption = "The value in each point is the point estimate excluding one study at a time",
+       x = "Study ID",
+       y = "lnVR") +
+  coord_flip()
+
+print(leave_one_study_out_lnVR_forest_plot)
+
+# ggsave(here("figures", "leave_one_study_out_lnVR_forest_plot.pdf"), width = 10, height = 10, units = "cm", scale = 2, dpi = 800)
+# ggsave(here("figures", "leave_one_study_out_lnVR_forest_plot.jpg"), width = 10, height = 10, units = "cm", scale = 2, dpi = 800)
+
+results.leave_study_out_model_lnVR %>% 
+  summarise(estimate = mean(Estimate), 
+            se = mean(SE), 
+            zval = mean(zval), 
+            pval = mean(pval), 
+            ci.lb = mean(ci.lb), 
+            ci.ub = mean(ci.ub)) %>% 
+  kable() %>% kable_styling("striped", position = "left")
+
+```
+
+```{r}
+### *Leave one species out*
+
+#### *Intercept only model (lnRR)*
+
+# Convert species_latin to a factor and create a new column for the leave-one-out procedure
+data$leave_species <- as.factor(data$species_latin)
+
+# Initialize lists to contain the model estimates and VCV matrices
+leave_species_out_model_lnRR <- list()
+VCV_leave_species_out_lnRR <- list()
+
+# save to save time - running this model is time-consuming
+
+# Save as .Rds file
+# saveRDS(leave_species_out_model_lnRR, file = here("R.data", "leave_species_out_model_lnRR.Rds"))
+
+# Load from .Rds file
+#leave_species_out_model_lnRR <- readRDS(here("R.data", "leave_species_out_model_lnRR.Rds"))
+
+
+# Save as .Rdata file
+# save(leave_study_out_model_lnVR, file = here("R.data", "leave_species_out_model_lnRR.Rdata"))
+
+# Load from .Rdata file
+#load(here("R.data", "leave_species_out_model_lnRR.Rdata"))
+
+# Iteratively run the multilevel model, leaving out one species at a time
+for(i in 1:length(levels(data$leave_species))){
+  # Create the data with one species removed at a time
+  data_species_leave <- data %>% filter(leave_species != levels(data$leave_species)[i])
+  
+  # Create a VCV matrix for the subset data
+  VCV_leave_species_out_lnRR[[i]] <- impute_covariance_matrix(vi = data_species_leave$lnRRv, cluster = data_species_leave$study_id, r = 0.5)
+  
+  # Model fitting
+  leave_species_out_model_lnRR[[i]] <- rma.mv(yi = data_species_leave$lnRR,
+                                              V = VCV_leave_species_out_lnRR[[i]],
+                                              random = list(~1 | study_id,
+                                                            ~1 | assay_id),
+                                              method = "REML", 
+                                              test = "t",
+                                              data = data_species_leave,
+                                              sparse = TRUE)
+} 
+
+
+results.leave_species_out_model_lnRR <- as.data.frame(cbind(
+  sapply(leave_species_out_model_lnRR, function(x) summary(x)$beta), 
+  sapply(leave_species_out_model_lnRR, function(x) summary(x)$se),   
+  sapply(leave_species_out_model_lnRR, function(x) summary(x)$zval), 
+  sapply(leave_species_out_model_lnRR, function(x) summary(x)$pval), 
+  sapply(leave_species_out_model_lnRR, function(x) summary(x)$ci.lb),
+  sapply(leave_species_out_model_lnRR, function(x) summary(x)$ci.ub) 
+))
+
+colnames(results.leave_species_out_model_lnRR) <- c("Estimate", "SE", "zval", "pval", "ci.lb", "ci.ub") 
+results.leave_species_out_model_lnRR$species_latin <- unique(data$species_latin)
+
+# Display the results table
+kable(results.leave_species_out_model_lnRR) %>%
+  kable_styling("striped", position = "left") %>%
+  scroll_box(width = "100%", height = "500px")
+
+leave_one_species_out_lnRR_forest_plot <- ggplot(results.leave_species_out_model_lnRR, 
+                                                 aes(x = fct_reorder(as.factor(species_latin), Estimate), 
+                                                     y = Estimate, 
+                                                     ymin = ci.lb, 
+                                                     ymax = ci.ub)) +
+  geom_pointrange() +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  theme_bw() +
+  theme(legend.position = "none",
+        axis.text = element_text(color = "black"),
+        axis.title = element_text(face = "bold", color = "black"),
+        plot.caption = element_text(size = 10, color = "gray10", face = "italic"),
+        axis.text.y = element_text(size = 8)) +
+  labs(caption = "The value in each point is the estimate excluding one species at a time",
+       x = "Species Latin",
+       y = "lnRR") +
+  ylim(-0.6, 0.2) +
+  coord_flip()
+
+print(leave_one_species_out_lnRR_forest_plot)
+
+# ggsave(here("figures", "leave_one_species_out_lnRR_forest_plot.pdf"), width = 10, height = 5, units = "cm", scale = 2, dpi = 800)
+# ggsave(here("figures", "leave_one_species_out_lnRR_forest_plot.jpg"), width = 10, height = 5, units = "cm", scale = 2, dpi = 800)
+
+results.leave_species_out_model_lnRR %>% 
+  summarise(estimate = mean(Estimate), 
+            se = mean(SE), 
+            zval = mean(zval), 
+            pval = mean(pval), 
+            ci.lb = mean(ci.lb), 
+            ci.ub = mean(ci.ub)) %>% 
+  kable() %>% kable_styling("striped", position = "left")
+```
+
+```{r}
+#### *Intercept only model (lnVR)*
+# Convert species_latin to a factor and create a new column for the leave-one-out procedure
+data$leave_species <- as.factor(data$species_latin)
+
+# Initialize lists to contain the model estimates and VCV matrices
+leave_species_out_model_lnVR <- list()
+VCV_leave_species_out_lnVR <- list()
+
+# Save as .Rds file
+# saveRDS(leave_species_out_model_lnRR, file = here("R.data", "leave_species_out_model_lnVR.Rds"))
+
+# Load from .Rds file
+#leave_species_out_model_lnVR <- readRDS(here("R.data", "leave_species_out_model_lnVR.Rds"))
+
+
+# Save as .Rdata file
+# save(leave_study_out_model_lnVR, file = here("R.data", "leave_species_out_model_lnVR.Rdata"))
+
+# Load from .Rdata file
+#load(here("R.data", "leave_species_out_model_lnVR.Rdata"))
+
+# Iteratively run the multilevel model, leaving out one species at a time
+for(i in 1:length(levels(data$leave_species))){
+  # Create the data with one species removed at a time
+  data_species_leave <- data %>% filter(leave_species != levels(data$leave_species)[i])
+  
+  # Create a VCV matrix for the subset data
+  VCV_leave_species_out_lnVR[[i]] <- impute_covariance_matrix(vi = data_species_leave$lnVRv, cluster = data_species_leave$study_id, r = 0.5)
+  
+  # Model fitting
+  leave_species_out_model_lnVR[[i]] <- rma.mv(yi = data_species_leave$lnVR,
+                                              V = VCV_leave_species_out_lnVR[[i]],
+                                              random = list(~1 | study_id,
+                                                            ~1 | assay_id
+                                                            ),
+                                              method = "REML", 
+                                              test = "t",
+                                              data = data_species_leave,
+                                              sparse = TRUE)
+} 
+
+results.leave_species_out_model_lnVR <- as.data.frame(cbind(
+  sapply(leave_species_out_model_lnVR, function(x) summary(x)$beta), 
+  sapply(leave_species_out_model_lnVR, function(x) summary(x)$se),   
+  sapply(leave_species_out_model_lnVR, function(x) summary(x)$zval), 
+  sapply(leave_species_out_model_lnVR, function(x) summary(x)$pval), 
+  sapply(leave_species_out_model_lnVR, function(x) summary(x)$ci.lb),
+  sapply(leave_species_out_model_lnVR, function(x) summary(x)$ci.ub)
+))
+
+colnames(results.leave_species_out_model_lnVR) <- c("Estimate", "SE", "zval", "pval", "ci.lb", "ci.ub") 
+results.leave_species_out_model_lnVR$species_latin <- unique(data$species_latin)
+
+# Display the results table
+kable(results.leave_species_out_model_lnVR) %>%
+  kable_styling("striped", position = "left") %>%
+  scroll_box(width = "100%", height = "500px")
+
+leave_one_species_out_lnVR_forest_plot <- ggplot(results.leave_species_out_model_lnVR, 
+                                                 aes(x = fct_reorder(as.factor(species_latin), Estimate), 
+                                                     y = Estimate, 
+                                                     ymin = ci.lb, 
+                                                     ymax = ci.ub)) +
+  geom_pointrange() +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  theme_bw() +
+  theme(legend.position = "none",
+        axis.text = element_text(color = "black"),
+        axis.title = element_text(face = "bold", color = "black"),
+        plot.caption = element_text(size = 10, color = "gray10", face = "italic"),
+        axis.text.y = element_text(size = 8)) +
+  labs(caption = "The value in each point is the estimate excluding one species at a time",
+       x = "Species Latin",
+       y = "lnVR") +
+  coord_flip()
+
+print(leave_one_species_out_lnVR_forest_plot)
+
+# ggsave(here("figures", "leave_one_species_out_lnVR_forest_plot.pdf"), width = 10, height = 5, units = "cm", scale = 2, dpi = 800)
+# ggsave(here("figures", "leave_one_species_out_lnVR_forest_plot.jpg"), width = 10, height = 5, units = "cm", scale = 2, dpi = 800)
+
+results.leave_species_out_model_lnVR %>% 
+  summarise(estimate = mean(Estimate), 
+            se = mean(SE), 
+            zval = mean(zval), 
+            pval = mean(pval), 
+            ci.lb = mean(ci.lb), 
+            ci.ub = mean(ci.ub)) %>% 
+  kable() %>% kable_styling("striped", position = "left")
+
+```
+
+```{r}
+### *Leave one pharmaceutical out*
+
+#### *Intercept only model (lnRR)*
+# Convert pharmaceutical_class to a factor and create a new column for the leave-one-out procedure
+data$leave_pharmaceutical_class <- as.factor(data$pharmaceutical)
+
+# Initialize lists to contain the model estimates and VCV matrices
+leave_pharmaceutical_class_out_model_lnRR <- list()
+VCV_leave_pharmaceutical_class_out_lnRR <- list()
+
+# Save as .Rds file
+# saveRDS(leave_species_out_model_lnRR, file = here("R.data", "leave_pesticide_out_model_lnRR.Rds"))
+
+# Load from .Rds file
+#leave_pharmaceutical_class_out_model_lnRR <- readRDS(here("R.data", "leave_pharmaceutical_class_out_model_lnRR.Rds"))
+
+
+# Save as .Rdata file
+
+# Load from .Rdata file
+#load(here("R.data", "leave_pharmaceutical_class_out_model_lnRR.Rds"))
+
+# Iteratively run the multilevel model, leaving out one pesticide chemical class at a time
+for(i in 1:length(levels(data$leave_pharmaceutical_class))){
+  data_pharmaceutical_class_leave <- data %>% filter(leave_pharmaceutical_class != levels(data$leave_pharmaceutical_class)[i])
+  
+  VCV_leave_pharmaceutical_class_out_lnRR[[i]] <- impute_covariance_matrix(vi = data_pharmaceutical_class_leave$lnRRv, cluster = data_pharmaceutical_class_leave$study_id, r = 0.5)
+  
+  leave_pharmaceutical_class_out_model_lnRR[[i]] <- rma.mv(yi = data_pharmaceutical_class_leave$lnRR,
+                                                V = VCV_leave_pharmaceutical_class_out_lnRR[[i]],
+                                                random = list(~1 | study_id,
+                                                              ~1 | assay_id),
+                                                method = "REML", 
+                                                test = "t",
+                                                data = data_pharmaceutical_class_leave,
+                                                sparse = TRUE)
+} 
+
+results.leave_pharmaceutical_class_out_model_lnRR <- as.data.frame(cbind(
+  sapply(leave_pharmaceutical_class_out_model_lnRR, function(x) summary(x)$beta), 
+  sapply(leave_pharmaceutical_class_out_model_lnRR, function(x) summary(x)$se),   
+  sapply(leave_pharmaceutical_class_out_model_lnRR, function(x) summary(x)$zval), 
+  sapply(leave_pharmaceutical_class_out_model_lnRR, function(x) summary(x)$pval), 
+  sapply(leave_pharmaceutical_class_out_model_lnRR, function(x) summary(x)$ci.lb),
+  sapply(leave_pharmaceutical_class_out_model_lnRR, function(x) summary(x)$ci.ub) 
+))
+
+colnames(results.leave_pharmaceutical_class_out_model_lnRR) <- c("Estimate", "SE", "zval", "pval", "ci.lb", "ci.ub") 
+results.leave_pharmaceutical_class_out_model_lnRR$pharmaceutical <- unique(data$pharmaceutical)
+
+# Display the results table
+kable(results.leave_pharmaceutical_class_out_model_lnRR) %>%
+  kable_styling("striped", position = "left") %>%
+  scroll_box(width = "100%", height = "500px")
+
+leave_one_pharmaceutical_class_out_lnRR_forest_plot <- ggplot(results.leave_pharmaceutical_class_out_model_lnRR, 
+                                                   aes(x = fct_reorder(as.factor(pharmaceutical), Estimate), 
+                                                       y = Estimate, 
+                                                       ymin = ci.lb, 
+                                                       ymax = ci.ub)) +
+  geom_pointrange() +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  theme_bw() +
+  theme(legend.position = "none",
+        axis.text = element_text(color = "black"),
+        axis.title = element_text(face = "bold", color = "black"),
+        plot.caption = element_text(size = 10, color = "gray10", face = "italic"),
+        axis.text.y = element_text(size = 8)) +
+  labs(caption = "The value in each point is the estimate excluding one pharmaceutical at a time",
+       x = "Pharmaceutical Class",
+       y = "lnRR") +
+  coord_flip()
+
+print(leave_one_pharmaceutical_class_out_lnRR_forest_plot)
+
+# ggsave(here("figures", "leave_one_pharmaceutical_class_out_lnRR_forest_plot.pdf"), width = 10, height = 5, units = "cm", scale = 2, dpi = 800)
+# ggsave(here("figures", "leave_one_pharmaceutical_class_out_lnRR_forest_plot.jpg"), width = 10, height = 5, units = "cm", scale = 2, dpi = 800)
+
+results.leave_pharmaceutical_class_out_model_lnRR %>% 
+  summarise(estimate = mean(Estimate), 
+            se = mean(SE), 
+            zval = mean(zval), 
+            pval = mean(pval), 
+            ci.lb = mean(ci.lb), 
+            ci.ub = mean(ci.ub)) %>% 
+  kable() %>% kable_styling("striped", position = "left")
+```
+
+```{r}
+#### *Intercept only model (lnVR)*
+# Convert pharmaceutical_class to a factor and create a new column for the leave-one-out procedure
+data$leave_pharmaceutical_class <- as.factor(data$pharmaceutical)
+
+# Initialize lists to contain the model estimates and VCV matrices
+leave_pharmaceutical_class_out_model_lnVR <- list()
+VCV_leave_pharmaceutical_class_out_lnVR <- list()
+
+# Save as .Rds file
+# saveRDS(leave_species_out_model_lnRV, file = here("R.data", "leave_pesticide_out_model_lnVR.Rds"))
+
+# Load from .Rds file
+#leave_pharmaceutical_class_out_model_lnVR <- readRDS(here("R.data", "leave_pharmaceutical_class_out_model_lnVR.Rds"))
+
+
+# Save as .Rdata file
+
+# Load from .Rdata file
+#load(here("R.data", "leave_pharmaceutical_class_out_model_lnVR.Rds"))
+
+# Iteratively run the multilevel model, leaving out one pesticide chemical class at a time
+for(i in 1:length(levels(data$leave_pharmaceutical))){
+  data_pharmaceutical_class_leave <- data %>% filter(leave_pharmaceutical_class != levels(data$leave_pharmaceutical_class)[i])
+  
+  VCV_leave_pharmaceutical_class_out_lnVR[[i]] <- impute_covariance_matrix(vi = data_pharmaceutical_class_leave$lnVRv, cluster = data_pharmaceutical_class_leave$study_id, r = 0.5)
+  
+  leave_pharmaceutical_class_out_model_lnVR[[i]] <- rma.mv(yi = data_pharmaceutical_class_leave$lnVR,
+                                                           V = VCV_leave_pharmaceutical_class_out_lnVR[[i]],
+                                                           random = list(~1 | study_id,
+                                                                         ~1 | assay_id),
+                                                           method = "REML", 
+                                                           test = "t",
+                                                           data = data_pharmaceutical_class_leave,
+                                                           sparse = TRUE)
+} 
+
+results.leave_pharmaceutical_class_out_model_lnVR <- as.data.frame(cbind(
+  sapply(leave_pharmaceutical_class_out_model_lnVR, function(x) summary(x)$beta), 
+  sapply(leave_pharmaceutical_class_out_model_lnVR, function(x) summary(x)$se),   
+  sapply(leave_pharmaceutical_class_out_model_lnVR, function(x) summary(x)$zval), 
+  sapply(leave_pharmaceutical_class_out_model_lnVR, function(x) summary(x)$pval), 
+  sapply(leave_pharmaceutical_class_out_model_lnVR, function(x) summary(x)$ci.lb),
+  sapply(leave_pharmaceutical_class_out_model_lnVR, function(x) summary(x)$ci.ub) 
+))
+
+colnames(results.leave_pharmaceutical_class_out_model_lnVR) <- c("Estimate", "SE", "zval", "pval", "ci.lb", "ci.ub") 
+results.leave_pharmaceutical_class_out_model_lnVR$pharmaceutical <- unique(data$pharmaceutical)
+
+# Display the results table
+kable(results.leave_pharmaceutical_class_out_model_lnVR) %>%
+  kable_styling("striped", position = "left") %>%
+  scroll_box(width = "100%", height = "500px")
+
+leave_one_pharmaceutical_class_out_lnVR_forest_plot <- ggplot(results.leave_pharmaceutical_class_out_model_lnVR, 
+                                                              aes(x = fct_reorder(as.factor(pharmaceutical), Estimate), 
+                                                                  y = Estimate, 
+                                                                  ymin = ci.lb, 
+                                                                  ymax = ci.ub)) +
+  geom_pointrange() +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  theme_bw() +
+  theme(legend.position = "none",
+        axis.text = element_text(color = "black"),
+        axis.title = element_text(face = "bold", color = "black"),
+        plot.caption = element_text(size = 10, color = "gray10", face = "italic"),
+        axis.text.y = element_text(size = 8)) +
+  labs(caption = "The value in each point is the estimate excluding one pharmaceutical at a time",
+       x = "Pharmaceutical Class",
+       y = "lnVR") +
+    coord_flip()
+
+print(leave_one_pharmaceutical_class_out_lnVR_forest_plot)
+
+# ggsave(here("figures", "leave_one_pharmaceutical_class_out_lnVR_forest_plot.pdf"), width = 10, height = 5, units = "cm", scale = 2, dpi = 800)
+# ggsave(here("figures", "leave_one_pharmaceutical_class_out_lnVR_forest_plot.jpg"), width = 10, height = 5, units = "cm", scale = 2, dpi = 800)
+
+results.leave_pharmaceutical_class_out_model_lnVR %>% 
+  summarise(estimate = mean(Estimate), 
+            se = mean(SE), 
+            zval = mean(zval), 
+            pval = mean(pval), 
+            ci.lb = mean(ci.lb), 
+            ci.ub = mean(ci.ub)) %>% 
+  kable() %>% kable_styling("striped", position = "left")
+
+```
+
