@@ -10,18 +10,18 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r}
-#Load packages
+# Load packages
 pacman::p_load(devtools, tidyverse, metafor, patchwork, R.rsp, orchaRd, emmeans, ape, phytools, flextable, here, kableExtra, magrittr, metagear, rotl, clubSandwich, MuMIn, ggsankey, scales)
 ```
 
 ```{r}
-#Load Data
+# Load Data
 data <- read.csv(here("data", "data_pharma_immune.csv"))
 
 ```
 
 ```{r}
-## *Calculate effect sizes and sampling variances*
+## Calculate effect sizes and sampling variances
 # Make sure all data is numeric 
 data <- data  %>%
   mutate(
@@ -86,6 +86,7 @@ effect_size_metrics_set <- data.frame(
 data <- cbind(data, effect_size_metrics_set)
 
 #Flip the sign (change effect sizes direction)
+data <- subset(data, orientation != 0) #Remove immune traits with orientation "0"
 data$lnRR <- ifelse(data$orientation == "-1", -1 * data$lnRR, data$lnRR)
 
 
@@ -104,6 +105,7 @@ kable(effect_size_metrics_set_kable, "html") %>%
   kable_styling("bordered", position = "left") %>%
   scroll_box(width = "250%", height = "800px")
 
+# Figure 1
 # Plot the distribution of effect size estimates (lnRR)
 lnRR_dist_plot <- effect_size_metrics_set_kable %>%
   ggplot(aes(lnRR)) +
@@ -125,8 +127,9 @@ print(lnRR_dist_plot)
 ```
 
 ```{r}
-## *Dependent effect size estimates*
-### *Create phylogentic tree*
+## Dependent effect size estimates
+# Create phylogenetic tree
+
 data <- as.data.frame(data)
 
 data$species_latin = as.factor(data$species_latin)
@@ -176,8 +179,8 @@ data$phylogeny <- data$unique_name  # Rename 'unique_name' to 'phylogeny' for th
 
 
 ```{r}
-## *Variance covariance matrices*
-#To account for the dependency of effect sizes estimates due to being in the same exposure group (cohort) we constructed a series of vcv matrices.
+## Variance covariance matrices
+# To account for the dependency of effect sizes estimates due to being in the same exposure group (cohort) we constructed a series of vcv matrices.
 
 #------------------------------lnRR------------------------------#
 data<- data[!is.na(data$lnRRv),] 
@@ -187,7 +190,7 @@ lnRRVCV <- lnRRVCV + diag(1e-5, nrow(lnRRVCV))
 ```
 
 ```{r}
-# **Selection of random-effect structure**
+### Selection of random-effect structure
 ## Null model with no random effects (lnRR)
 # fit a null model as default model
 null_mod_lnRR <- rma.mv(yi = lnRR, 
@@ -265,9 +268,7 @@ mod_lnRR.assay_id.study_id.species.phylogeny <- rma.mv(yi = lnRR,
 
 summary(mod_lnRR.assay_id.study_id.species.phylogeny)
 
-fitstats(mod_lnRR.assay_id.study_id, mod_lnRR.assay_id.study_id.species.phylogeny)
-
-i2_ml(mod_lnRR.assay_id.study_id.species.phylogeny)
+anova(mod_lnRR.assay_id.study_id,mod_lnRR.assay_id.study_id.species.phylogeny)
 ```
 
 
@@ -293,13 +294,17 @@ i2_ml(mod_lnRR.assay_id.study_id.pharmaceutical_class)
 
 
 ```{r}
-# **Intercept only meta-analysis models**
-## *Intercept only model (lnRR)*
-# Model
+### Question: Does pharmaceutical impact the immunocompetence of fish?
+
+## Intercept only meta-analysis models
+#Intercept only model (lnRR)
+
 lnRR_intercept_only <- rma.mv(yi = lnRR,
                               V = lnRRVCV,
                               random = list(~1 | study_id,
-                                            ~1 | assay_id),
+                                            ~1 | assay_id,
+                                            ~1 | pharmaceutical_class,
+                                            ~1 | species_latin),
                               method = "REML",
                               test = "t", 
                               data = data,
@@ -321,11 +326,11 @@ lnRR_percentage_change
 ```
 
 ```{r}
-## *Figure 2*
-#Impacts of pharmaceutical exposure on fish immune response. The model estimates the average effects of pharmaceutical exposure on immune responses in fish. (A) shows the mean difference between control and treatment groups on a logarithmic scale, where negative values indicate a weak immune response.
+## Figure 2
+#Impacts of pharmaceutical exposure on fish immune response. The model estimates the average effects of pharmaceutical exposure on fish immune responses. (a) shows the mean difference between control and treatment groups on a logarithmic scale, where negative values indicate a weak immune response, and positive values indicate a strong immune response.Shorter whiskers represent 95% confidence intervals, while longer whiskers indicate 95% prediction intervals. 'k' represents the number of effect sizes, and the number of studies is in brackets. Each circle corresponds to an effect size, with its size scaled by precision (the inverse of the sampling error variance)
 
 # Figure 2
-# Create the plot without the data argument
+# Create the plot
 intercept_only.lnRR_orchard <- orchaRd::orchard_plot(lnRR_intercept_only,
                                                      group = "study_id",
                                                      xlab = "lnRR",
@@ -335,14 +340,14 @@ intercept_only.lnRR_orchard <- orchaRd::orchard_plot(lnRR_intercept_only,
                                                      fill = TRUE,  
                                                      trunk.size = 0.8, 
                                                      legend.pos = "none",
-                                                     branch.size = 1.2,
-                                                     twig.size = 0.8) +
+                                                     branch.size = 1.5,
+                                                     twig.size = 0.5) +
   scale_fill_manual(values = RColorBrewer::brewer.pal(8, "Dark2")[1]) +
   scale_x_discrete(labels = c("Model estimates")) +
   theme(
     panel.grid = element_blank(),      # removes all gridlines
-    panel.grid.major = element_blank(),# removes major gridlines (optional redundancy)
-    panel.grid.minor = element_blank() # removes minor gridlines (optional redundancy)
+    panel.grid.major = element_blank(),# removes major gridlines 
+    panel.grid.minor = element_blank() # removes minor gridlines
   )
 
 # Display the plot
@@ -352,10 +357,11 @@ intercept_only.lnRR_orchard
 
 
 ```{r}
-# **Single moderator meta-regression**
-## *immune characteristics*
-###  *Moderating effects of immune type (lnRR)*
-# Model
+#### Question: What is the mean effect of pharmaceutical exposure on each major immune category?
+
+## Single moderator meta-regression
+# Immune categories (lnRR)*
+
 lnRR_mod_immune_category_high <- rma.mv(yi = lnRR,
                                    V = lnRRVCV,
                                    random = list(~1 | study_id,
@@ -385,26 +391,6 @@ lnRR_percentage_change
 
 ```
 
-```{r}
-immune_category_high_mod_orchard.lnRR <- orchaRd::orchard_plot(lnRR_mod_immune_category_high,
-                                                        group = "study_id", 
-                                                        xlab = "lnRR",
-                                                        
-                                                        mod = "immune_category_high",
-                                                        g = TRUE,
-                                                        k.pos = "right",
-                                                        colour = FALSE,
-                                                        fill = TRUE,  
-                                                        legend.pos = "none",
-                                                        trunk.size = 0.8, 
-                                                        branch.size = 1.2,
-                                                        twig.size = 0.8) +
-  scale_fill_viridis_d(option = "plasma") +  # Ensures enough colors
-  theme(axis.text.y = element_text(angle = 0)) +  # Make y-axis labels straight
-  plot_annotation(tag_levels = "A")
-
-immune_category_high_mod_orchard.lnRR
-```
 
 ```{r}
 pal_pastel <- c("#BFD3E6", "#F7C9A9", "#D1B3E0", "#B9E3C6")  # soft pastel set
