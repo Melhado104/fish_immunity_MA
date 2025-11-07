@@ -294,7 +294,7 @@ i2_ml(mod_lnRR.assay_id.study_id.pharmaceutical_class)
 
 
 ```{r}
-### Question: Does pharmaceutical impact the immunocompetence of fish?
+### Question: What's the impact of pharmaceutical exposure on immunocompetence of fish?
 
 ## Intercept only meta-analysis models
 #Intercept only model (lnRR)
@@ -304,11 +304,13 @@ lnRR_intercept_only <- rma.mv(yi = lnRR,
                               random = list(~1 | study_id,
                                             ~1 | assay_id,
                                             ~1 | pharmaceutical_class,
-                                            ~1 | species_latin),
+                                            ~1 | species_latin,
+                                            ~1 | phylogeny),
                               method = "REML",
                               test = "t", 
                               data = data,
-                              sparse = T)
+                              sparse = T,
+                              R = list(phylogeny = phylo_matrix))
 
 # Summary statistics 
 summary(lnRR_intercept_only)
@@ -357,7 +359,7 @@ intercept_only.lnRR_orchard
 
 
 ```{r}
-#### Question: What is the mean effect of pharmaceutical exposure on each major immune category?
+#### Question: Do immune traits differ in their responses to pharmaceutical exposure?
 
 ## Single moderator meta-regression
 # Immune categories (lnRR)*
@@ -365,12 +367,16 @@ intercept_only.lnRR_orchard
 lnRR_mod_immune_category_high <- rma.mv(yi = lnRR,
                                    V = lnRRVCV,
                                    random = list(~1 | study_id,
-                                                 ~1 | assay_id),
+                                                 ~1 | assay_id,
+                                                 ~1 | pharmaceutical_class,
+                                                 ~1 | species_latin,
+                                                 ~1 | phylogeny),
                                    mods = ~immune_category_high -1,
                                    method = "REML",
                                    test = "t", 
                                    data = data,
-                                   sparse = T)
+                                   sparse = T,
+                                   R = list(phylogeny = phylo_matrix))
 
 
 # Summary results
@@ -393,7 +399,8 @@ lnRR_percentage_change
 
 
 ```{r}
-pal_pastel <- c("#BFD3E6", "#F7C9A9", "#D1B3E0", "#B9E3C6")  # soft pastel set
+# Figure 3
+pal_pastel <- c("#BFD3E6", "#F7C9A9", "#D1B3E0", "#B9E3C6")  # pastel set
 
 immune_category_high_mod_orchard.lnRR <-
   orchaRd::orchard_plot(
@@ -405,11 +412,11 @@ immune_category_high_mod_orchard.lnRR <-
     k.pos = "right",
     colour = FALSE,
     fill   = TRUE,
-    trunk.size  = 2.4,   # thinner summary CI line
-    branch.size = 1.2,   # thinner study CI lines
-    twig.size   = 0.8    # smaller study dots
+    trunk.size  = 2.4,   # summary CI line
+    branch.size = 1.2,   # study CI lines
+    twig.size   = 0.8    # study dots
   ) +
-  scale_fill_manual(values = pal_pastel) +    # pastel palette
+  scale_fill_manual(values = pal_pastel) +
   # Clean, axis-only look
   theme_classic(base_size = 11) +
   theme(
@@ -419,7 +426,7 @@ immune_category_high_mod_orchard.lnRR <-
   # Reference at no effect
   geom_vline(xintercept = 0, linetype = "dashed") +
   labs(title = NULL) +
-  patchwork::plot_annotation(tag_levels = "A")  # if you’re using patchwork
+  patchwork::plot_annotation(tag_levels = "A")
 
 # shrink the summary bubble and the PI line on the summary layer
 immune_category_high_mod_orchard.lnRR$layers[[4]]$geom_params$fatten    <- 1.7  # default is 4
@@ -431,54 +438,21 @@ immune_category_high_mod_orchard.lnRR
 
 
 ```{r}
-# Figure 3
-# Step 1: Create a data frame with one row per immune_category_high
-trait_levels_rr <- data.frame(immune_category_high = sort(unique(data$immune_category_high)))
-
-# Step 2: Create the model matrix
-X_rr <- model.matrix(~ immune_category_high - 1, data = trait_levels_rr)
-
-# Step 3: Get predictions from the model
-preds_rr <- predict(lnRR_mod_immune_category_high, newmods = X_rr, level = 95)
-
-# Step 4: Build the plot data frame
-immune_plot_data_rr <- data.frame(
-  immune_category_high = trait_levels_rr$immune_category_high,
-  estimate = preds_rr$pred,
-  ci.lb = preds_rr$ci.lb,
-  ci.ub = preds_rr$ci.ub
-)
-
-# Step 5: Order the traits by effect size
-immune_plot_data_rr <- immune_plot_data_rr %>%
-  arrange(estimate) %>%
-  mutate(immune_category_high = factor(immune_category_high, levels = immune_category_high))
-
-# Step 6: Plot
-ggplot(immune_plot_data_rr, aes(x = estimate, y = immune_category_high)) +
-  geom_point(color = "black", size = 2) +
-  geom_errorbarh(aes(xmin = ci.lb, xmax = ci.ub), color = "black", height = 0.2) +
-  geom_vline(xintercept = 0, linetype = "dashed") +
-  labs(x = "lnRR", y = NULL) +
-  theme_minimal() +
-  theme(axis.text.y = element_text(angle = 0, size = 10))
-
-
-```
-
-
-```{r}
+## Question: Do pharmaceutical vary in their effects on fish immunocompetence?
 #Moderate by pharmaceutical_class (lnRR)
 lnRR_mod_pharmaceutical_class <- rma.mv(yi = lnRR,
                                   V = lnRRVCV,
                                   random = list(~1 | study_id,
-                                                ~1 | assay_id),
-                                  
+                                                 ~1 | assay_id,
+                                                 ~1 | pharmaceutical_class,
+                                                 ~1 | species_latin,
+                                                 ~1 | phylogeny),
                                   mods = ~pharmaceutical_class -1,
                                   method = "REML",
                                   test = "t", 
                                   data = data,
-                                  sparse = T)
+                                  sparse = T,
+                                  R = list(phylogeny = phylo_matrix))
 
 # Summary results
 summary(lnRR_mod_pharmaceutical_class)
@@ -488,6 +462,7 @@ lnRR_pharmaceutical_class_mod_results <- mod_results(lnRR_mod_pharmaceutical_cla
 r2_ml(lnRR_mod_pharmaceutical_class)
 
 ```
+
 ```{r}
 ### *Figure 4*
 #The moderating effects of pharmaceutical_class on (A) response magnitude 
