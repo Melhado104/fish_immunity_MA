@@ -85,10 +85,6 @@ effect_size_metrics_set <- data.frame(
 # Bind the effect size metrics set to the main data
 data <- cbind(data, effect_size_metrics_set)
 
-#Flip the sign (change effect sizes direction)
-data <- subset(data, orientation != 0) #Remove immune traits with orientation "0"
-data$lnRR <- ifelse(data$orientation == "-1", -1 * data$lnRR, data$lnRR)
-
 
 # Select specific columns including the new precision columns
 effect_size_metrics_set_kable <- data[, which(colnames(data) %in% c(
@@ -299,7 +295,7 @@ i2_ml(mod_lnRR.assay_id.study_id.pharmaceutical_class)
 ## Intercept only meta-analysis models
 #Intercept only model (lnRR)
 
-lnRR_intercept_only <- rma.mv(yi = lnRR,
+lnRR_intercept_only <- rma.mv(yi = abs(lnRR),
                               V = lnRRVCV,
                               random = list(~1 | study_id,
                                             ~1 | assay_id,
@@ -440,13 +436,14 @@ immune_category_high_mod_orchard.lnRR
 
 
 ```{r}
-## Question: Do pharmaceuticals vary in their effects on fish immunocompetence?
+## Question: Do pharmaceutical vary in their effects on fish immunocompetence?
 
 # Moderate by pharmaceutical_class (lnRR)
 lnRR_mod_pharmaceutical_class <- rma.mv(yi = lnRR,
                                   V = lnRRVCV,
                                   random = list(~1 | study_id,
                                                  ~1 | assay_id,
+                                                 ~1 | pharmaceutical_class,
                                                  ~1 | species_latin,
                                                  ~1 | phylogeny),
                                   mods = ~pharmaceutical_class -1,
@@ -739,14 +736,12 @@ lnRR_mod_phylogeny <- rma.mv(yi = lnRR,
                            random = list(~1 | study_id,
                                                  ~1 | assay_id,
                                                  ~1 | pharmaceutical_class,
-                                                 ~1 | species_latin,
-                                         ~1 | phylogeny),
+                                                 ~1 | species_latin),
                            mods = ~phylogeny -1,
                            method = "REML",
                            test = "t", 
                            data = data,
-                           sparse = T,
-                           R = list(phylogeny = phylo_matrix))
+                           sparse = T)
 
 # Summary results
 summary(lnRR_mod_phylogeny)
@@ -922,3 +917,5 @@ age_mod_orchard.lnRR$layers[[4]]$geom_params$linewidth <- 0.35 # ggplot ≥3.4
 
 age_mod_orchard.lnRR
 ```
+
+

@@ -285,16 +285,22 @@ summary(mod_lnVR.assay_id.study_id.pharmaceutical_class)
 ```
 
 ```{r}
-## *Intercept only model (lnVR)*
+### Question: What's the impact of pharmaceutical exposure on the variation of immune responses in fish?
+
+## Intercept only model (lnVR)
 # Model
 lnVR_intercept_only <- rma.mv(yi = lnVR,
                               V = lnVRVCV,
                               random = list(~1 | study_id,
-                                            ~1 | assay_id),
+                                            ~1 | assay_id,
+                                            ~1 | pharmaceutical_class,
+                                            ~1 | species_latin,
+                                            ~1 | phylogeny),
                               method = "REML",
                               test = "t", 
                               data = data,
-                              sparse = T)
+                              sparse = T,
+                              R = list(phylogeny = phylo_matrix))
 
 
 # Summary statistics 
@@ -343,18 +349,24 @@ intercept_only.lnVR__orchard
 ```
 
 ```{r}
+#### Question: How does pharmaceutical exposure affect the variability of immune responses?
+
 ###  *Moderating effects of immune response (lnVR)*
 # Model
 lnVR_mod_immune_category_high <- rma.mv(yi = lnVR,
                                    V = lnVRVCV,
                                    random = list(~1 | study_id,
-                                                 ~1 | assay_id),
+                                            ~1 | assay_id,
+                                            ~1 | pharmaceutical_class,
+                                            ~1 | species_latin,
+                                            ~1 | phylogeny),
                                                  
                                    mods = ~immune_category_high -1,
                                    method = "REML",
                                    test = "t", 
                                    data = data,
-                                   sparse = T)
+                                   sparse = T,
+                                   R = list(phylogeny = phylo_matrix))
 
 # Summary statistics
 summary(lnVR_mod_immune_category_high)
@@ -364,30 +376,11 @@ mod_results(lnVR_mod_immune_category_high, mod = "immune_category_high", data = 
 r2_ml(lnVR_mod_immune_category_high)
 ```
 
-```{r}
-# Figure 4B
-immune_category_high_mod_orchard.lnVR <- orchaRd::orchard_plot(lnVR_mod_immune_category_high,
-                                                             group = "study_id", 
-                                                             xlab = "lnVR",
-                                                             
-                                                             mod = "immune_category_high",
-                                                             g = TRUE,
-                                                             k.pos = "right",
-                                                             colour = FALSE,
-                                                             fill = TRUE,  
-                                                             legend.pos = "none",
-                                                             trunk.size = 3., 
-                                                             branch.size = 1.5,
-                                                             twig.size = 1) +
-  scale_fill_viridis_d(option = "plasma") +  # Ensures enough colors
-  theme(axis.text.y = element_text(angle = 0)) +  # Make y-axis labels straight
-  plot_annotation(tag_levels = "A")
-
-immune_category_high_mod_orchard.lnVR
-```
-
 
 ```{r}
+# Figure 3
+# The moderating effects of immune traits, white blood cell count (WBC), humoral-mediated response, cytokines and cell-mediated response on response variability
+
 # 1) Soft pastel palette (4 classes shown in your plot)
 pal_pastel <- c("#BFD3E6", "#F7C9A9", "#D1B3E0", "#B9E3C6")
 
@@ -428,53 +421,25 @@ immune_category_high_mod_orchard.lnVR
 ```
 
 
-```{r}
-# Figure 3b)
-# Step 1: Create a new data frame with one row per immune_category_high
-trait_levels <- data.frame(immune_category_high = sort(unique(data$immune_category_high)))
-
-# Step 2: Create the model matrix
-X <- model.matrix(~ immune_category_high - 1, data = trait_levels)
-
-# Step 3: Get predictions from the model
-preds <- predict(lnVR_mod_immune_category_high, newmods = X, level = 95)
-
-# Step 4: Build the plot data frame
-immune_plot_data <- data.frame(
-  immune_category_high = trait_levels$immune_category_high,
-  estimate = preds$pred,
-  ci.lb = preds$ci.lb,
-  ci.ub = preds$ci.ub
-)
-
-# Step 5: Order the traits by effect size if desired
-immune_plot_data <- immune_plot_data %>%
-  arrange(estimate) %>%
-  mutate(immune_category_high = factor(immune_category_high, levels = immune_category_high))
-
-# Step 6: Plot using ggplot2 with no color variation
-ggplot(immune_plot_data, aes(x = estimate, y = immune_category_high)) +
-  geom_point(color = "black", size = 2) +
-  geom_errorbarh(aes(xmin = ci.lb, xmax = ci.ub), color = "black", height = 0.2) +
-  geom_vline(xintercept = 0, linetype = "dashed") +
-  labs(x = "lnVR", y = NULL) +
-  theme_minimal() +
-  theme(axis.text.y = element_text(angle = 0, size = 10))
-```
-
 
 ```{r}
-#moderate by pharmaceutical (lnRV)
+## Question: Do pharmaceuticals vary in their effects on fish immune rresponse variability?
+
+# moderate by pharmaceutical (lnRV)
 lnVR_mod_pharmaceutical_class <- rma.mv(yi = lnVR,
                                         V = lnVRVCV,
                                         random = list(~1 | study_id,
-                                                      ~1 | assay_id),
+                                            ~1 | assay_id,
+                                            ~1 | pharmaceutical_class,
+                                            ~1 | species_latin,
+                                            ~1 | phylogeny),
                                         
                                         mods = ~pharmaceutical_class -1,
                                         method = "REML",
                                         test = "t", 
                                         data = data,
-                                        sparse = T)
+                                        sparse = T,
+                                        R = list(phylogeny = phylo_matrix))
 
 # Summary results
 summary(lnVR_mod_pharmaceutical_class)
@@ -484,33 +449,11 @@ lnVR_pharmaceutical_class_mod_results <- mod_results(lnVR_mod_pharmaceutical_cla
 r2_ml(lnVR_mod_pharmaceutical_class)
 ```
 
+
 ```{r}
-### *Figure 4*
+### Figure 4
 #The moderating effects of pharmaceutical (B) response variability in immune response. Shorter whiskers represent 95% confidence intervals, while longer whiskers indicate 95% prediction intervals. 'k' represents the number of effect sizes, and the number of studies is in brackets. Each circle corresponds to an effect size, with its size scaled according to precision (inverse sampling error variance).
 
-# Figure 4B
-pharmaceutical_class_mod_orchard.lnVR <- orchaRd::orchard_plot(lnVR_mod_pharmaceutical_class,
-                                                             group = "study_id", 
-                                                             xlab = "lnVR",
-                                                             
-                                                             mod = "pharmaceutical_class",
-                                                             g = TRUE,
-                                                             k.pos = "right",
-                                                             colour = FALSE,
-                                                             fill = TRUE,  
-                                                             legend.pos = "none",
-                                                             trunk.size = 3., 
-                                                             branch.size = 1.5,
-                                                             twig.size = 1) +
-  scale_fill_viridis_d(option = "plasma") +  # Ensures enough colors
-  theme(axis.text.y = element_text(angle = 0)) +  # Make y-axis labels straight
-  plot_annotation(tag_levels = "A")
-
-pharmaceutical_class_mod_orchard.lnVR
-
-```
-
-```{r}
 # 1) Soft pastel palette (4 classes shown in your plot)
 pal_pastel <- c("#BFD3E6", "#F7C9A9", "#D1B3E0", "#B9E3C6")
 
@@ -550,41 +493,6 @@ pharmaceutical_class_mod_orchard.lnVR
 ```
 
 
-
-```{r}
-# Step 1: Create a data frame with one row per pharmaceutical_class
-pharma_levels_lnVR <- data.frame(pharmaceutical_class = sort(unique(data$pharmaceutical_class)))
-
-# Step 2: Create the model matrix
-X_pharma_lnVR <- model.matrix(~ pharmaceutical_class - 1, data = pharma_levels_lnVR)
-
-# Step 3: Get predictions from the model
-pharma_preds_lnVR <- predict(lnVR_mod_pharmaceutical_class, newmods = X_pharma_lnVR, level = 95)
-
-# Step 4: Build the plot data frame
-pharma_plot_data_lnVR <- data.frame(
-  pharmaceutical_class = pharma_levels_lnVR$pharmaceutical_class,
-  estimate = pharma_preds_lnVR$pred,
-  ci.lb = pharma_preds_lnVR$ci.lb,
-  ci.ub = pharma_preds_lnVR$ci.ub
-)
-
-# Step 5: Order the classes by effect size
-pharma_plot_data_lnVR <- pharma_plot_data_lnVR %>%
-  arrange(estimate) %>%
-  mutate(pharmaceutical_class = factor(pharmaceutical_class, levels = pharmaceutical_class))
-
-# Step 6: Plot
-ggplot(pharma_plot_data_lnVR, aes(x = estimate, y = pharmaceutical_class)) +
-  geom_point(color = "black", size = 2) +
-  geom_errorbarh(aes(xmin = ci.lb, xmax = ci.ub), color = "black", height = 0.2) +
-  geom_vline(xintercept = 0, linetype = "dashed") +
-  labs(x = "lnVR", y = NULL) +
-  theme_minimal() +
-  theme(axis.text.y = element_text(angle = 0, size = 10))
-
-```
-
 ```{r}
 ### *Moderate by concentration of pharmaceutical (lnVR)*
 # Create dataframe for model with consistent dosage units
@@ -619,17 +527,26 @@ lnVRVCV_dosage_smooth <- lnVRVCV_dosage + diag(1e-5, nrow(lnVRVCV_dosage))
 # Make the matrix symmetric by averaging with its transpose
 lnVRVCV_dosage_smooth <- (lnVRVCV_dosage_smooth + t(lnVRVCV_dosage_smooth)) / 2
 
+```
+
+```{R}
+## Question: Does pharmaceutical dosage influence the variability of immune response in fish?
+
 ## Model
 lnVR_mod_dosage <- rma.mv(yi = lnVR,
                           V = lnVRVCV,
                           random = list(~1 | study_id,
-                                        ~1 | assay_id),
+                                            ~1 | assay_id,
+                                            ~1 | pharmaceutical_class,
+                                            ~1 | species_latin,
+                                            ~1 | phylogeny),
                                         
                           mods = ~log_dosage_convert_ugL -1,
                           method = "REML",
                           test = "t", 
                           data = data_dosage_model,
-                          sparse = T)
+                          sparse = T,
+                          R = list(phylogeny = phylo_matrix))
 
 # Summary results
 summary(lnVR_mod_dosage)
@@ -638,7 +555,9 @@ dosage_mod_lnVR_results <- mod_results(lnVR_mod_dosage, mod = "log_dosage_conver
 
 r2_lnVR_dosage <- r2_ml(lnVR_mod_dosage, data_dosage_model)
 r2_lnVR_dosage
+
 ```
+
 
 ```{r}
 ### *Moderate by duration of pharmaceutical (lnVR)* 
@@ -664,18 +583,27 @@ lnVRVCV_duration <- metafor::vcalc(vi = lnVRv, cluster = exposure_id, obs = assa
 lnVRVCV_duration_smooth <- lnVRVCV_duration + diag(1e-5, nrow(lnVRVCV_duration))
 # Make the matrix symmetric by averaging with its transpose
 lnVRVCV_duration_smooth <- (lnVRVCV_duration_smooth + t(lnVRVCV_duration_smooth)) / 2
+```
 
-## Model
+
+```{R}
+## Question: Does exposure duration to pharmaceutical influence the variability of immune response in fish?
+
+# Model
 lnVR_mod_duration <- rma.mv(yi = lnVR,
                             V = lnVRVCV,
                             random = list(~1 | study_id,
-                                          ~1 | assay_id),
+                                            ~1 | assay_id,
+                                            ~1 | pharmaceutical_class,
+                                            ~1 | species_latin,
+                                            ~1 | phylogeny),
                                           
                             mods = ~log(duration_convert) -1,
                             method = "REML",
                             test = "t", 
                             data =data_duration_model ,
-                            sparse = T)
+                            sparse = T,
+                            R = list(phylogeny = phylo_matrix))
 # Summary results
 summary(lnVR_mod_duration)
 
@@ -687,6 +615,9 @@ r2_lnVR_duration
 ```
 
 ```{r}
+# Figure 5a)
+## We illustrate the (c) moderating effects of dosage (ug/L, on a logarithmic scale) and (d) duration (hours) on the variability of immune response. The R2 values indicate the minimal variance explained by dosage and duration
+
 # Figure 5c)
 dosage_bubble_plot.lnVR <- bubble_plot(dosage_mod_lnVR_results, mod = "log_dosage_convert_ugL", group = "study_id", x = "dosage_convert_ugL",
                                        y = "lnVR", est.lwd = 1, legend.pos = "bottom.right", k.pos = "bottom.left",
@@ -717,63 +648,25 @@ duration_bubble_plot.lnVR
 
 ```
 
-```{r}
-# Figure 6) Dose–response on lnVR
-dosage_bubble_plot.lnVR <- bubble_plot(
-  dosage_mod_lnVR_results,
-  mod = "log_dosage_convert_ugL",
-  group = "study_id",
-  x = "dosage_convert_ugL",
-  y = "lnVR",
-  est.lwd = 1,
-  legend.pos = "bottom.right",
-  k.pos = "bottom.left",
-  ci.col = "red",
-  pi.col = "black",
-  est.col = "black",
-  g = TRUE
-) +
-  # Add R2 annotation
-  annotate(
-    geom = "text",
-    x = 7, y = 5.8,
-    label = paste0("italic(R)^{2} == ", round(r2_lnVR_dosage[1], 4)),
-    color = "black",
-    parse = TRUE, size = 4
-  ) +
-  # Axis labels with units and log scale notation
-  xlab(expression(paste("Dosage (", mu, "g/L - log"[10], " scale)"))) +
-  ylab("lnVR") +
-  ggtitle("") +
-  # Clean theme: remove grid, keep axes
-  theme_classic(base_size = 14) +
-  theme(
-    plot.title   = element_text(size = 18),
-    legend.position = "none",
-    axis.title.x = element_text(size = 16),
-    axis.title.y = element_text(size = 16),
-    axis.text.x  = element_text(size = 14),
-    axis.text.y  = element_text(size = 14)
-  )
-
-dosage_bubble_plot.lnVR
-
-```
-
 
 ```{r}
+## Question: Does evolutionary history (phylogeny) influence how immune function vary in response to pharmaceutical exposure?
+
 #Moderate by phylogeny (lnRV)
 # Model
 lnVR_mod_fish_phylogeny <- rma.mv(yi = lnVR,
                                V = lnVRVCV,
                                random = list(~1 | study_id,
-                                             ~1 | assay_id
-                               ),
+                                            ~1 | assay_id,
+                                            ~1 | pharmaceutical_class,
+                                            ~1 | species_latin,
+                                            ~1 | phylogeny),
                                mods = ~phylogeny -1,
                                method = "REML",
                                test = "t", 
                                data = data,
-                               sparse = T)
+                               sparse = T,
+                               R = list(phylogeny = phylo_matrix))
 
 # Summary results
 summary(lnVR_mod_fish_phylogeny)
@@ -809,51 +702,25 @@ fish_phylogeny_mod_orchard.lnVR <- orchaRd::orchard_plot(lnVR_mod_fish_phylogeny
 print(fish_phylogeny_mod_orchard.lnVR)
 ```
 
-```{r}
-# Step 1: Create a data frame with one row per fish_phylogeny
-fish_phylogeny_levels_lnVR <- data.frame(phylogeny = sort(unique(data$phylogeny)))
-
-# Step 2: Create the model matrix
-X_fish_phylogeny_lnVR <- model.matrix(~ phylogeny - 1, data = fish_phylogeny_levels_lnVR)
-
-# Step 3: Get predictions from the model
-fish_phylogeny_preds_lnVR <- predict(lnVR_mod_fish_phylogeny, newmods = X_fish_phylogeny_lnVR, level = 95)
-
-# Step 4: Build the plot data frame
-fish_phylogeny_plot_data_lnVR <- data.frame(
-  phylogeny = fish_phylogeny_levels_lnVR$phylogeny,
-  estimate = fish_phylogeny_preds_lnVR$pred,
-  ci.lb = fish_phylogeny_preds_lnVR$ci.lb,
-  ci.ub = fish_phylogeny_preds_lnVR$ci.ub
-)
-
-# Step 5: Order phylogeny by effect size
-fish_phylogeny_plot_data_lnVR <- fish_phylogeny_plot_data_lnVR %>%
-  arrange(estimate) %>%
-  mutate(phylogeny = factor(phylogeny, levels = phylogeny))
-
-# Step 6: Plot
-ggplot(fish_phylogeny_plot_data_lnVR, aes(x = estimate, y = phylogeny)) +
-  geom_point(color = "black", size = 2) +
-  geom_errorbarh(aes(xmin = ci.lb, xmax = ci.ub), color = "black", height = 0.2) +
-  geom_vline(xintercept = 0, linetype = "dashed") +
-  labs(x = "lnVR", y = NULL) +
-  theme_minimal() +
-  theme(axis.text.y = element_text(angle = 0, size = 10))
-```
 
 ```{r}
+### Question: Is the effect of pharmaceuticals on the variability of fish immune responses sex-dependent?
+
 #Moderate by sex (lnVR)
 ##Model
 lnVR_mod_sex <- rma.mv(yi = lnVR,
                            V = lnVRVCV,
                            random = list(~1 | study_id,
-                                         ~1 | assay_id),
+                                            ~1 | assay_id,
+                                            ~1 | pharmaceutical_class,
+                                            ~1 | species_latin,
+                                            ~1 | phylogeny),
                            mods = ~sex -1,
                            method = "REML",
                            test = "t", 
                            data = data,
-                           sparse = T)
+                           sparse = T,
+                       R = list(phylogeny = phylo_matrix))
 
 
 # Summary results
@@ -866,6 +733,8 @@ r2_ml(lnVR_mod_sex)
 ```
 
 ```{r}
+# Figure 7
+
 lnVR_mod_sex_figure <-
   orchaRd::orchard_plot(
     lnVR_mod_sex,
@@ -916,16 +785,25 @@ data <- data %>%
     age_recode = factor(age_recode, levels = c("adult","early_life_stage","not reported"))
   )
 
+```
+
+```{R}
+### Question: Is the effect of pharmaceuticals on the variability of fish immune responses age-dependent?
+
 ##Model
 lnVR_mod_age <- rma.mv(yi = lnVR,
                        V = lnVRVCV,
                        random = list(~1 | study_id,
-                                     ~1 | assay_id),
+                                            ~1 | assay_id,
+                                            ~1 | pharmaceutical_class,
+                                            ~1 | species_latin,
+                                            ~1 | phylogeny),
                        mods = ~age_recode -1,
                        method = "REML",
                        test = "t", 
                        data = data,
-                       sparse = T)
+                       sparse = T,
+                       R = list(phylogeny = phylo_matrix))
 
 
 # Summary results
@@ -937,6 +815,8 @@ r2_ml(lnVR_mod_age)
 ```
 
 ```{r}
+# Figure 8
+
 age_mod_orchard.lnVR <-
   orchaRd::orchard_plot(
     lnVR_mod_age,
@@ -969,119 +849,3 @@ age_mod_orchard.lnVR$layers[[4]]$geom_params$linewidth <- 0.35 # ggplot ≥3.4
 
 age_mod_orchard.lnVR
 ```
-
-
-
-```{r}
-# **Model selection and multi-model inference**
-## *lnVR model selection and multi-model inference*
-
-# Create a data frame with only the required columns
-dosage_duration_set <- data.frame(
-  dosage_convert_ugL = data_dosage_model$dosage_convert_ugL,
-  duration_convert = data_duration_model$duration_convert
-)
-
-# Bind these columns to `data`
-data <- cbind(data, dosage_duration_set)
-
-#Model lnVR
-mlmr.full.lnVR <- rma.mv(yi = lnVR, 
-                         V = lnVRVCV, 
-                         random = list(~1 | study_id,
-                                       ~1 | assay_id),
-                         mods = ~ immune_category_high + pharmaceutical_class + phylogeny + age                                 + dosage_convert_ugL + duration_convert + sex,
-                         method = "REML", 
-                         test = "t", 
-                         data = data, 
-                         sparse = TRUE)
-
-r2_ml(mlmr.full.lnVR, data = data)
-
-eval(metafor:::.MuMIn)  # use eval() to extract helper functions from MuMIn and make them usable in metafor.
-
-mlmr.dredge.lnVR <- dredge(mlmr.full.lnVR, beta = "none", evaluate = TRUE, rank = "AICc", trace = 2)
-
-# Multimodel inference
-summary(mlmr.full.lnVR)
-
-# Select "best" models based on delta <= 2
-best_model_vr <- subset(mlmr.dredge.lnVR, delta <= 2, recalc.weights = FALSE)
-
-# Display the results in a scrollable kable table
-best_model_vr %>%
-  kable("html") %>%
-  kable_styling("bordered", position = "left") %>%
-  scroll_box(width = "100%", height = "800px")
-
-# Relative importance values for the predictors
-weights_lnVR <- sw(mlmr.dredge.lnVR)
-
-# Convert the named vector into a data frame
-weights_lnVR_df <- data.frame(
-  predictor = names(weights_lnVR),  
-  weight = as.numeric(weights_lnVR),
-  R2_marginal = c(0.08257499, 0.1268721, 0.008088331, 0.01655531, 0.007386313, 0.0008732072, 0.02898393))
-
-summary(weights_lnVR_df)
-
-```
-
-```{r}
-# lnVR model selection plot
-weights_lnVR_plot <- weights_lnVR_df %>% 
-  ggplot(aes(x = reorder(predictor, weight), y = weight)) +
-  geom_col(width = 0.8, alpha = 0.7) +
-  coord_flip() + 
-  scale_y_continuous(
-    limits = c(0, 1.2),  
-    breaks = seq(0, 1, by = 0.2),
-    expand = c(0, 0)
-  ) +
-  geom_text(aes(label = scales::percent(weight, accuracy = 1)), 
-            size = 6, position = position_stack(vjust = 0.5), 
-            color = "white", fontface = "bold") +
-  geom_text(aes(y = 1.1, label = paste0("R2 = ", round(R2_marginal, 2))), 
-            size = 4, 
-            fontface = "italic", 
-            color = "red") +
-  theme_bw() +
-  guides(size = "none") +
-  theme(
-    legend.position = "none",
-    axis.text = element_text(color = "black"),
-    axis.title = element_text(face = "bold", color = "black"),
-    plot.caption = element_text(size = 10, color = "gray10", face = "italic")
-  ) +
-  labs(
-    caption = "The value in each bar is the relative importance of each moderator based on Akaike weights",
-    y = "Akaike Weights",
-    x = "Moderators",
-    tag = "B"
-  ) +
-  scale_x_discrete(labels = c("dosage_convert_ugL", "duration_convert", "sex",  "pharmaceutical_class", "age", "immune_trait_category", "phylogeny"))
-
-weights_lnVR_plot
-
-```
-
-```{r}
-#Refit the biological relevant moderators using REML
-# Refit the best model using REML
-mlmr.best.lnVR.reml <- rma.mv(
-  yi = lnVR,
-  V = lnVRVCV,
-  random = list(~1 | study_id, ~1 | assay_id),
-  mods = ~ dosage_convert_ugL + immune_category_high + pharmaceutical_class,
-  method = "REML",
-  test = "t",
-  data = data,
-  sparse = TRUE
-)
-
-# View the summary
-summary(mlmr.best.lnVR.reml)
-r2_ml(mlmr.best.lnVR.reml)
-
-```
-
