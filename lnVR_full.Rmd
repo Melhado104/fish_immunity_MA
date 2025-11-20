@@ -270,22 +270,22 @@ anova(mod_lnVR.assay_id.study_id, mod_lnVR.assay_id.study_id.phylogeny)
 
 
 ```{r}
-## Add *pharmaceutical_class* as a random effect to the above better model (that used *assay_id* and *study_id* as random effects) (lnVR)
-mod_lnVR.assay_id.study_id.pharmaceutical_class <- rma.mv(yi = lnVR,
+## Add *pharmaceutical* as a random effect to the above better model (that used *assay_id* and *study_id* as random effects) (lnVR)
+mod_lnVR.assay_id.study_id.pharmaceutical <- rma.mv(yi = lnVR,
                                                                  V = lnVRVCV,
                                                                  random = list(~1 | study_id,
                                                                                ~1 | assay_id,
-                                                                               ~1 | pharmaceutical_class),
+                                                                               ~1 | pharmaceutical),
                                                                  method = "ML",
                                                                  test = "t", 
                                                                  data = data, 
                                                                  sparse = T)
 
-summary(mod_lnVR.assay_id.study_id.pharmaceutical_class)
+summary(mod_lnVR.assay_id.study_id.pharmaceutical)
 ```
 
 ```{r}
-### Question: What's the impact of pharmaceutical exposure on the variation of immune responses in fish?
+### Question: Does pharmaceutical impact immune response variability?
 
 ## Intercept only model (lnVR)
 # Model
@@ -293,7 +293,7 @@ lnVR_intercept_only <- rma.mv(yi = lnVR,
                               V = lnVRVCV,
                               random = list(~1 | study_id,
                                             ~1 | assay_id,
-                                            ~1 | pharmaceutical_class,
+                                            ~1 | pharmaceutical,
                                             ~1 | species_latin,
                                             ~1 | phylogeny),
                               method = "REML",
@@ -357,7 +357,7 @@ lnVR_mod_immune_category_high <- rma.mv(yi = lnVR,
                                    V = lnVRVCV,
                                    random = list(~1 | study_id,
                                             ~1 | assay_id,
-                                            ~1 | pharmaceutical_class,
+                                            ~1 | pharmaceutical,
                                             ~1 | species_latin,
                                             ~1 | phylogeny),
                                                  
@@ -423,15 +423,16 @@ immune_category_high_mod_orchard.lnVR
 
 
 ```{r}
-## Question: Do pharmaceuticals vary in their effects on fish immune rresponse variability?
+## Question: Do pharmaceuticals vary in their effects on fish immune response variability?
 
-# moderate by pharmaceutical (lnRV)
-lnVR_mod_pharmaceutical_class <- rma.mv(yi = lnVR,
+# moderate by pharmaceutical_class (lnRV)
+lnVR_mod_pharmaceutical <- rma.mv(yi = lnVR,
                                         V = lnVRVCV,
                                         random = list(~1 | study_id,
                                             ~1 | assay_id,
                                             ~1 | species_latin,
-                                            ~1 | phylogeny),
+                                            ~1 | phylogeny,
+                                            ~1 | pharmaceutical),
                                         
                                         mods = ~pharmaceutical_class -1,
                                         method = "REML",
@@ -441,11 +442,11 @@ lnVR_mod_pharmaceutical_class <- rma.mv(yi = lnVR,
                                         R = list(phylogeny = phylo_matrix))
 
 # Summary results
-summary(lnVR_mod_pharmaceutical_class)
+summary(lnVR_mod_pharmaceutical)
 
-lnVR_pharmaceutical_class_mod_results <- mod_results(lnVR_mod_pharmaceutical_class, mod = "pharmaceutical_class", data = data, group = "study_id") 
+lnVR_pharmaceutical_mod_results <- mod_results(lnVR_mod_pharmaceutical, mod = "pharmaceutical_class", data = data, group = "study_id") 
 
-r2_ml(lnVR_mod_pharmaceutical_class)
+r2_ml(lnVR_mod_pharmaceutical)
 ```
 
 
@@ -457,9 +458,9 @@ r2_ml(lnVR_mod_pharmaceutical_class)
 pal_pastel <- c("#BFD3E6", "#F7C9A9", "#D1B3E0", "#B9E3C6")
 
 # 2) Build the orchard with lighter geometry
-pharmaceutical_class_mod_orchard.lnVR <-
+pharmaceutical_mod_orchard.lnVR <-
   orchaRd::orchard_plot(
-    lnVR_mod_pharmaceutical_class,
+    lnVR_mod_pharmaceutical,
     group = "study_id",
     xlab  = "lnVR",
     mod   = "pharmaceutical_class",
@@ -482,13 +483,13 @@ pharmaceutical_class_mod_orchard.lnVR <-
   geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.4, alpha = 0.7)
 
 # 3) Shrink the big summary bubble (layer [[4]] is the summary pointrange)
-pharmaceutical_class_mod_orchard.lnVR$layers[[4]]$geom_params$fatten    <- 1.7 # default ~4
+pharmaceutical_mod_orchard.lnVR$layers[[4]]$geom_params$fatten    <- 1.7 # default ~4
 
 # 5) (Optional) slim the CI lines (layers [[3]] & [[4]])
-pharmaceutical_class_mod_orchard.lnVR$layers[[3]]$geom_params$linewidth <- 0.35
-pharmaceutical_class_mod_orchard.lnVR$layers[[4]]$geom_params$linewidth <- 0.35
+pharmaceutical_mod_orchard.lnVR$layers[[3]]$geom_params$linewidth <- 0.35
+pharmaceutical_mod_orchard.lnVR$layers[[4]]$geom_params$linewidth <- 0.35
 
-pharmaceutical_class_mod_orchard.lnVR
+pharmaceutical_mod_orchard.lnVR
 ```
 
 
@@ -536,7 +537,7 @@ lnVR_mod_dosage <- rma.mv(yi = lnVR,
                           V = lnVRVCV,
                           random = list(~1 | study_id,
                                             ~1 | assay_id,
-                                            ~1 | pharmaceutical_class,
+                                            ~1 | pharmaceutical,
                                             ~1 | species_latin,
                                             ~1 | phylogeny),
                                         
@@ -593,7 +594,7 @@ lnVR_mod_duration <- rma.mv(yi = lnVR,
                             V = lnVRVCV,
                             random = list(~1 | study_id,
                                             ~1 | assay_id,
-                                            ~1 | pharmaceutical_class,
+                                            ~1 | pharmaceutical,
                                             ~1 | species_latin,
                                             ~1 | phylogeny),
                                           
@@ -648,59 +649,6 @@ duration_bubble_plot.lnVR
 ```
 
 
-```{r}
-## Question: Does evolutionary history (phylogeny) influence how immune function vary in response to pharmaceutical exposure?
-
-#Moderate by phylogeny (lnRV)
-# Model
-lnVR_mod_fish_phylogeny <- rma.mv(yi = lnVR,
-                               V = lnVRVCV,
-                               random = list(~1 | study_id,
-                                            ~1 | assay_id,
-                                            ~1 | pharmaceutical_class,
-                                            ~1 | species_latin,
-                                            ~1 | phylogeny),
-                               mods = ~phylogeny -1,
-                               method = "REML",
-                               test = "t", 
-                               data = data,
-                               sparse = T,
-                               R = list(phylogeny = phylo_matrix))
-
-# Summary results
-summary(lnVR_mod_fish_phylogeny)
-
-r2_ml(lnVR_mod_fish_phylogeny)
-
-
-lnVR_phylogeny_mod_results <- mod_results(lnVR_mod_fish_phylogeny, mod = "phylogeny", data = data, group = "study_id")  
-
-
-```
-
-```{r}
-# Figure 6B)
-fish_phylogeny_mod_orchard.lnVR <- orchaRd::orchard_plot(lnVR_mod_fish_phylogeny,
-                                                      group = "study_id", 
-                                                      xlab = "lnVR",
-                                                      
-                                                      mod = "phylogeny",
-                                                      g = TRUE,
-                                                      k.pos = "right",
-                                                      colour = FALSE,
-                                                      fill = TRUE,  
-                                                      legend.pos = "none",
-                                                      trunk.size = 3., 
-                                                      branch.size = 1.5,
-                                                      twig.size = 1) +
-  scale_fill_viridis_d(option = "plasma") +  # Ensures enough colors
-  theme(axis.text.y = element_text(angle = 0)) +  # Make y-axis labels straight
-  plot_annotation(tag_levels = "A")
-
-
-print(fish_phylogeny_mod_orchard.lnVR)
-```
-
 
 ```{r}
 ### Question: Is the effect of pharmaceuticals on the variability of fish immune responses sex-dependent?
@@ -711,7 +659,7 @@ lnVR_mod_sex <- rma.mv(yi = lnVR,
                            V = lnVRVCV,
                            random = list(~1 | study_id,
                                             ~1 | assay_id,
-                                            ~1 | pharmaceutical_class,
+                                            ~1 | pharmaceutical,
                                             ~1 | species_latin,
                                             ~1 | phylogeny),
                            mods = ~sex -1,
@@ -732,7 +680,7 @@ r2_ml(lnVR_mod_sex)
 ```
 
 ```{r}
-# Figure 7
+# Figure 6
 
 lnVR_mod_sex_figure <-
   orchaRd::orchard_plot(
@@ -794,7 +742,7 @@ lnVR_mod_age <- rma.mv(yi = lnVR,
                        V = lnVRVCV,
                        random = list(~1 | study_id,
                                             ~1 | assay_id,
-                                            ~1 | pharmaceutical_class,
+                                            ~1 | pharmaceutical,
                                             ~1 | species_latin,
                                             ~1 | phylogeny),
                        mods = ~age_recode -1,
@@ -814,7 +762,7 @@ r2_ml(lnVR_mod_age)
 ```
 
 ```{r}
-# Figure 8
+# Figure 7
 
 age_mod_orchard.lnVR <-
   orchaRd::orchard_plot(
