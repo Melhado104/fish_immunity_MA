@@ -87,6 +87,8 @@ effect_size_metrics_set <- data.frame(
 # Bind the effect size metrics set to the main data
 data <- cbind(data, effect_size_metrics_set)
 
+data <- subset(data, orientation != 0) #Remove immune traits with orientation "0"
+
 # Select specific columns including the new precision columns
 effect_size_metrics_set_kable <- data[, which(colnames(data) %in% c(
   "study_id","assay_id", "species_english", "pharmaceutical", "immune_trait_category",
