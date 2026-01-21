@@ -1,0 +1,313 @@
+---
+title: "literature_summary"
+author: "Gabriel Melhado"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## *Load packages*
+```{r}
+rm(list = ls())
+
+pacman::p_load(tidyverse,
+               here,
+               kableExtra,
+               magrittr, 
+               patchwork,
+               metafor,
+               metagear,
+               ape,
+               rotl,
+               orchaRd,
+               clubSandwich,
+               MuMIn,
+               ggsankey)
+
+```
+
+## *Load Data*
+```{r}
+data <- read_csv(here("data", "data_pharma_immune.csv"), skip = 0)
+
+# Format ID variables as characters
+data <- mutate_at(data, 
+                  vars(study_id, 
+                       exposure_id, 
+                       assay_id), 
+                       as.character)
+# Table of the dataset
+ kable(data, "html") %>%
+    kable_styling("bordered", position = "left") %>%
+    scroll_box(width = "250%", height = "800px")
+
+
+# Summary of the data set
+kable(summary(data), "html") %>%
+    kable_styling("bordered", position = "left") %>%
+    scroll_box(width = "250%", height = "500px")
+```
+
+# **Data exploration and reporting of methodological items**
+## *Figure XX & XX*
+#B) A bubble plot showing the number of effect sizes of each pharmaceutical_class_class class per immune trait
+#C) A bar chart showing the total number of effect sizes per species
+```{r,fig.width=8, fig.height=13}
+# Summarize data by grouping on pharmaceutical_class and immune trait measured, then count entries.
+pc_cb_summary <- data %>% 
+  group_by(pharmaceutical_class, immune_category_high) %>% 
+  summarise(n = n(), .groups = "drop")
+
+# Determine the top 9 pharmaceutical_classs based on the number of records.
+top_pharmaceutical_class <- pc_cb_summary %>%
+  group_by(pharmaceutical_class) %>%
+  summarise(total_count = sum(n)) %>%
+  top_n(9, total_count) %>%
+  pull(pharmaceutical_class)
+
+# Adjust category names to 'Other' for those pharmaceutical classes not in the top 9
+pc_cb_summary_filtered <- pc_cb_summary %>%
+  mutate(pharmaceutical_class = ifelse(pharmaceutical_class %in% top_pharmaceutical_class,
+                                           pharmaceutical_class,
+                                           "Other")) %>%
+  group_by(pharmaceutical_class, immune_category_high) %>%
+  summarise(n = sum(n), .groups = "drop")
+
+# Create the bubble plot
+immune_pharmaceutical_class_bubble_plot <- pc_cb_summary_filtered %>%
+   ggplot(aes(
+       x = fct_rev(fct_reorder(str_wrap(str_to_title(immune_category_high), width = 15), n, .fun = 'sum')),
+       y = fct_reorder(str_to_title(pharmaceutical_class), n, .fun = 'sum'),
+       size = n
+   )) +
+  geom_point(alpha = 0.5, color = RColorBrewer::brewer.pal(n = 8, name = "Dark2")[3]) +
+  scale_size_continuous(range = c(5, 20)) +
+  theme_bw() +
+  guides(size = "none") +
+  theme(
+    legend.position = "none",
+    axis.text = element_text(size = 12,color = "black"),
+    axis.title = element_text(size = 12,face = "bold", color = "black"),
+    plot.caption = element_text(size = 12, color = "gray10", face = "italic")
+  ) +
+  geom_text(aes(label = as.character(n)), size = 5, color = "gray10") +
+  labs(
+    caption = "The value in each cell is the total number of effect sizes",
+    x = "Immune trait",
+    y = "Pharmaceutical class",
+    tag = "B"
+  )
+
+# Group data by species, count entries, and drop groups post-summary.
+sp_summary <- data %>% 
+  group_by(species_english) %>% 
+  summarise(n = n(), .groups = "drop")
+
+# Calculate proportion and percentage of total counts for each species.
+species_pct <- sp_summary %>% 
+  mutate(proportion = n / sum(n), 
+         percentage = proportion * 100)
+
+# Create the bar plot
+species_effect_size_count_bar_plot <- sp_summary %>%
+  ggplot(aes(x = n, y = reorder(str_to_title(species_english), n))) + 
+  geom_bar(stat = "identity", width = 0.8, alpha = 0.5, fill = RColorBrewer::brewer.pal(n = 8, name = "Dark2")[2]) +
+  geom_text(aes(label = ifelse(n < 9, "", n), x = n / 2, y = reorder(str_to_title(species_english), n)), hjust = 0.5, size = 5, color = "black") +
+  geom_text(data = species_pct, aes(label = paste0("(", round(percentage, 1), "%)"), x = n), 
+            hjust = -0.1, size = 6, color = "black", fontface = "bold") +
+  scale_x_continuous(expand = c(0, 0), limits = c(0, max(sp_summary$n) * 1.2)) +
+  theme_bw() +
+  guides(size = "none") +
+  theme(legend.position = "none",
+        axis.text = element_text(size = 12,color = "black"),
+        axis.title = element_text(size = 12,face = "bold", color = "black"),
+        plot.caption = element_text(size = 12, color = "gray10", face = "italic")) +
+  labs(caption = "The value in each bar is the total number of effect sizes",
+       x = "Total number of effect size estimates",
+       y = "Species",
+       tag = "C")
+
+# Combine both plots into a single figure.
+main_text_figure_1 <- immune_pharmaceutical_class_bubble_plot / species_effect_size_count_bar_plot
+
+print(main_text_figure_1)
+
+# ggsave(here("figures", "main_text_figure_1.pdf"), width = 10, height = 13, units = "cm", scale = 2, dpi = 800)
+ #ggsave(here("figures", "main_text_figure_1.jpg"), width = 10, height = 13, units = "cm", scale = 2, dpi = 800)
+
+```
+
+## *Figure s2*
+A bubble plot showing the number of effect sizes of each species per immune trait
+```{r,fig.width=8, fig.height=6}
+# Group data by species, count entries, and drop groups post-summary.
+species_summary <- data %>%
+  group_by(species_english, immune_category_high) %>%
+  summarise(
+    n = n(),
+    pharmaceutical_class = first(pharmaceutical_class),
+    .groups = "drop"
+  )
+
+# Determine the top 20 species based on the number of records.
+top_species <- species_summary %>%
+  group_by(species_english, immune_category_high) %>%
+  summarise(total_count = sum(n), .groups = "drop") %>%
+  top_n(20, total_count) %>%
+  pull(species_english)
+
+# Create the bubble plot the immune trait assessed per species (number of effect size as count)
+
+immune_species_bubble_plot <- species_summary %>% # can add _filtered if needed
+  ggplot(aes(x = fct_rev(fct_reorder(str_to_title(immune_category_high), n, .fun = 'sum')),
+             y = fct_reorder(str_to_title(species_english), n, .fun = 'sum'),
+             size = n)) +
+  geom_point(alpha = 0.5, color = RColorBrewer::brewer.pal(n = 8, name = "Dark2")[2]) +
+  scale_size_continuous(range = c(8, 25)) +
+  theme_bw() +
+  guides(size = "none") +
+theme(legend.position = "none",
+        axis.text = element_text(color = "black"),
+        axis.title = element_text(face = "bold", color = "black"),
+        plot.caption = element_text(size = 10, color = "gray10", face = "italic")) + 
+  geom_text(aes(label = as.character(n)), size = 4, color = "gray10") +
+  labs(caption = "The value in each cell is the number of effect sizes",
+       x = "Immune trait",
+       y = "Species") +
+  scale_color_brewer(palette = "Dark2", name = "Chemical Class")
+
+print(immune_species_bubble_plot)
+
+# ggsave(here("figures", "immune_species_bubble_plot.pdf"), width = 8, height = 6, units = "cm", scale = 2, dpi = 800)
+# ggsave(here("figures", "immune_species_bubble_plot.jpg"), width = 8, height = 6, units = "cm", scale = 2, dpi = 800)
+```
+
+## *Figure s3*
+A bar chart showing the sex of fish used in the literature
+```{r,fig.width=10, fig.height=5}
+# Group data by 'sex of fish' and count entries, then drop grouping for further analysis.
+sex_summary <- data %>% 
+  group_by(sex) %>% 
+  summarise(n = n(), .groups = "drop")
+
+# Calculate proportions and percentages of total studies for each sex.
+sex_pct <- sex_summary %>% 
+  mutate(proportion = n / sum(n),  
+         percentage = proportion * 100)
+
+# Create a bar plot visualizing the number of studies per sex, with annotations for counts and percentages.
+fish_sex_study_count_bar_plot <- sex_summary %>%
+  ggplot(aes(x = n, y = reorder(str_to_title(sex), n))) + 
+  geom_bar(stat = "identity", width = 0.8, alpha = 0.5, fill = RColorBrewer::brewer.pal(n = 8, name = "Dark2")[2]) +
+  geom_text(aes(label = n, x = n / 2, y = reorder(str_to_title(sex), n)), hjust = 0.5, size = 4, color = "black") +
+  geom_text(data = sex_pct, aes(label = paste0("(", round(percentage, 1), "%)"), x = n), 
+            hjust = -0.1, size = 4, color = "black", fontface = "bold") +
+  scale_x_continuous(expand = c(0, 0), limits = c(0, max(sex_summary$n) * 1.2)) +
+  theme_bw() +
+  guides(size = "none") +
+  theme(legend.position = "none",
+        axis.text = element_text(color = "black"),
+        axis.title = element_text(face = "bold", color = "black"),
+        plot.caption = element_text(size = 10, color = "gray10", face = "italic")) +
+  labs(caption = "The value in each bar is the total number of studies",
+       x = "Total number of effect sizes",
+       y = "Sex of fish")
+
+print(fish_sex_study_count_bar_plot)
+
+# ggsave(here("figures", "fish_sex_study_count_bar_plot.pdf"), width = 10, height = 5, units = "cm", scale = 2, dpi = 800)
+# ggsave(here("figures", "fish_sex_study_count_bar_plot.jpg"), width = 10, height = 5, units = "cm", scale = 2, dpi = 800)
+```
+
+## *Figure s5*
+A bubble plot showing the number of effect sizes of each pharmaceutical per immune trait
+```{r,fig.width=8, fig.height=8}
+# Group data by species, count entries, and drop groups post-summary.
+p_cb_summary <- data %>%
+  group_by(pharmaceutical, immune_category_high) %>%
+  summarise(
+    n = n(),
+    pharmaceutical = first(pharmaceutical),
+    .groups = "drop"
+  )
+# Determine the top 8 pesticide classes based on the number of records.
+top_pharmaceutical <- p_cb_summary %>%
+  group_by(pharmaceutical, immune_category_high) %>%
+  summarise(total_count = sum(n), .groups = "drop") %>%
+  top_n(20, total_count) %>%
+  pull(pharmaceutical)
+
+# Create the bubble plot for the immune traits assessed per pharmaceutical (effect size as count)
+
+immune_pharmaceutical_bubble_plot <- p_cb_summary %>% # can add _filtered if needed
+   ggplot(aes(x = fct_rev(fct_reorder(str_to_title(immune_category_high), n, .fun = 'sum')),
+             y = fct_reorder(str_to_title(pharmaceutical), n, .fun = 'sum'),
+             size = n)) +
+  geom_point(alpha = 0.5, color = RColorBrewer::brewer.pal(n = 8, name = "Dark2")[5]) +
+  scale_size_continuous(range = c(4, 20)) +
+  theme_bw() +
+  guides(size = "none") +
+theme(legend.position = "none",
+        axis.text = element_text(color = "black"),
+        axis.title = element_text(face = "bold", color = "black"),
+        plot.caption = element_text(size = 10, color = "gray10", face = "italic")) +
+  geom_text(aes(label = as.character(n)), size = 4, color = "gray10") +
+  labs(caption = "The value in each cell is the number of effect sizes",
+       x = "Immune trait",
+       y = "Pharmaceutical") +
+      scale_y_discrete(labels = function(x) ifelse(x %in% c("Ddt", "Dca", "Dcpmu"), toupper(x), x))
+
+print(immune_pharmaceutical_bubble_plot)
+
+# ggsave(here("figures", "immune_pharmaceutical_bubble_plot.pdf"), width = 8, height = 12, units = "cm", scale = 2, dpi = 800)
+# ggsave(here("figures", "immune_pharmaceutical_bubble_plot.jpg"), width = 8, height = 12, units = "cm", scale = 2, dpi = 800)
+```
+
+## *Figure s13*
+Visual representation of the characteristics of the primary studies included in the dataset. The vertical bars indicate key categorical variables. The widths of the vertical bars indicate the numbers of effect sizes represented by each level of the categorical variable. The flow lines between vertical bars indicate the connections and overlaps of different levels of the categorical variables. 
+```{r}
+# Select relevant columns and replace NA values with "Not Reported"
+data_sankey <- data %>%
+  select(c(immune_category_high, 
+           pharmaceutical_class, 
+           species_english, 
+           sex)) %>%
+  mutate(across(c(immune_category_high, 
+           pharmaceutical_class, 
+           species_english, 
+           sex), 
+                ~ replace_na(., "Not Reported")))
+
+# Transform data into a long format for the Sankey plot
+sankey_df <- data_sankey %>%
+  ggsankey::make_long(immune_category_high, 
+           pharmaceutical_class, 
+           species_english, 
+           sex)
+
+# Create the Sankey plot
+ggplot(sankey_df, aes(x = x, next_x = next_x, 
+                      node = node, 
+                      next_node = next_node, 
+                      fill = factor(node), 
+                      label = node)) +
+  geom_sankey(flow.alpha = .6, node.color = "gray30") +
+  geom_sankey_label(size = 3, color = "white", fill = "gray40") +
+  scale_fill_viridis_d() +
+  scale_x_discrete(labels = c("Immune trait", "Pharmaceutical Class", 
+                              "Species", "Sex"), 
+                   position = "top") +
+  theme_sankey(base_size = 10) +
+  labs(x = NULL) +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust = .5),
+        axis.text.x = element_text(color = "black", size = 9))
+
+
+# ggsave(here("figures", "sankey_plot.pdf"), width = 10, height = 5, units = "cm", scale = 2, dpi = 800)
+# ggsave(here("figures", "sankey_plot.jpg"), width = 10, height = 5, units = "cm", scale = 2, dpi = 800)
+
+```
