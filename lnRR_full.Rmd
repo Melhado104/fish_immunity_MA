@@ -107,21 +107,49 @@ kable(effect_size_metrics_set_kable, "html") %>%
 
 # Figure 1
 # Plot the distribution of effect size estimates (lnRR)
+theme_pub <- theme_bw(base_size = 10) +
+  theme(
+    legend.position = "none",
+    
+    # Axis titles
+    axis.title = element_text(
+      face = "bold",
+      size = 11,
+      color = "black"
+    ),
+    
+    # Axis text (numbers)
+    axis.text = element_text(
+      size = 10,
+      color = "black"
+    ),
+    
+    # Axis lines and ticks
+    axis.ticks = element_line(color = "black", linewidth = 0.4),
+    axis.line = element_line(color = "black", linewidth = 0.4),
+    
+    # Remove grid
+    panel.grid = element_blank(),
+    
+    # Panel border slightly stronger
+    panel.border = element_rect(color = "black", linewidth = 0.5)
+  )
+
 lnRR_dist_plot <- effect_size_metrics_set_kable %>%
   ggplot(aes(lnRR)) +
-  geom_histogram(fill = RColorBrewer::brewer.pal(n = 8, name = "Set2")[2], col = "black", binwidth = 0.1, alpha = 0.4) +
-  theme_bw() +
-  theme(legend.position = "none",
-        plot.title = element_text(face = "bold", hjust = 0.5),
-        axis.title.x = element_text(face = "bold"),
-        axis.title.y = element_text(face = "bold"),
-        axis.text.x = element_text(color = "black"),
-        axis.text.y = element_text(color = "black"),
-        axis.ticks = element_line(color = "black"),
-        plot.caption = element_text(size = 10, color = "gray10", face = "italic")) +
-  labs(caption = "Distribution of Effect Size Estimates (lnRR)",
-       x = "lnRR",
-       y = "Frequency")
+  geom_histogram(
+    fill = "#BFD3E6",
+    color = "black",
+    binwidth = 0.1,
+    linewidth = 0.3
+  ) +
+  labs(
+    x = "Log Response Ratio (lnRR)",
+    y = "Frequency"
+  ) +
+  theme_pub
+
+
 
 print(lnRR_dist_plot)
 ```
@@ -332,28 +360,58 @@ lnRR_percentage_change
 #Impacts of pharmaceutical exposure on fish immune response. The model estimates the average effects of pharmaceutical exposure on fish immune responses. (a) shows the mean difference between control and treatment groups on a logarithmic scale, where negative values indicate a weak immune response, and positive values indicate a strong immune response.Shorter whiskers represent 95% confidence intervals, while longer whiskers indicate 95% prediction intervals. 'k' represents the number of effect sizes, and the number of studies is in brackets. Each circle corresponds to an effect size, with its size scaled by precision (the inverse of the sampling error variance)
 
 # Figure 2
-# Create the plot
-intercept_only.lnRR_orchard <- orchaRd::orchard_plot(lnRR_intercept_only,
-                                                     group = "study_id",
-                                                     xlab = "lnRR",
-                                                     g = TRUE,
-                                                     k.pos = "right",
-                                                     colour = FALSE,
-                                                     fill = TRUE,  
-                                                     trunk.size = 0.8, 
-                                                     legend.pos = "none",
-                                                     branch.size = 1.5,
-                                                     twig.size = 0.5) +
-  scale_fill_manual(values = RColorBrewer::brewer.pal(8, "Dark2")[1]) +
-  scale_x_discrete(labels = c("Model estimates")) +
+
+metric_colours <- list(
+  lnRR = "#BFD3E6",
+  lnVR = "#F7C9A9"
+)
+
+theme_pub_large <- theme_bw(base_size = 13) +
   theme(
-    panel.grid = element_blank(),      # removes all gridlines
-    panel.grid.major = element_blank(),# removes major gridlines 
-    panel.grid.minor = element_blank() # removes minor gridlines
+    legend.position = "none",
+
+    axis.title = element_text(face = "bold", size = 14, color = "black"),
+    axis.text  = element_text(size = 13, color = "black"),
+
+    axis.ticks = element_line(color = "black", linewidth = 0.4),
+    axis.line  = element_line(color = "black", linewidth = 0.4),
+
+    panel.grid = element_blank(),
+    panel.border = element_rect(color = "black", linewidth = 0.5)
   )
 
-# Display the plot
+
+intercept_only.lnRR_orchard <- orchaRd::orchard_plot(
+  lnRR_intercept_only,
+  group = "study_id",
+  xlab = "Log Response Ratio (lnRR)",
+  g = TRUE,
+  k.pos = "right",
+  colour = FALSE,
+  fill = TRUE,
+  trunk.size = 0.8,
+  legend.pos = "none",
+  branch.size = 1.5,
+  twig.size = 0.5
+) +
+  scale_fill_manual(values = metric_colours$lnRR) +
+  scale_x_discrete(labels = c("Model estimates")) +
+  theme_pub_large +
+  theme(
+    axis.title = element_text(face = "bold", size = 12, color = "black"),
+    axis.text  = element_text(size = 11, color = "black"),
+    axis.text.y = element_text(face = "bold", size = 13, color = "black", angle = 90, vjust = 0.5, hjust = 0.5),
+    panel.grid = element_blank()
+  )
+
+
+
+# Display
 intercept_only.lnRR_orchard
+
+#ggsave(here("figures", "figure1_overall_lnRR.pdf"), width = 12, height = 7, units = "cm", scale = 2, dpi = 800)
+#ggsave(here("figures", "figure1_overall_lnRR.jpg"), width = 12, height = 7, units = "cm", scale = 2, dpi = 800)
+
 
 ```
 
@@ -402,13 +460,21 @@ lnRR_percentage_change
 # Figure 3
 # The moderating effects of immune traits, white blood cell count (WBC), humoral-mediated response, cytokines and cell-mediated response on response magnitude
 
-pal_pastel <- c("#BFD3E6", "#F7C9A9", "#D1B3E0", "#B9E3C6")  # pastel set
+pal_pastel_named <- c(
+  "WBC"          = "#8FBCE6",
+  "Humoral-mediated" = "#F7C9A9",
+  "Cytokines"    = "#D1B3E0",
+  "Cell-mediated"= "#9FD5C0"
+)
+
+
+# Figure 3 (lnRR ~ immune_category_high)
 
 immune_category_high_mod_orchard.lnRR <-
   orchaRd::orchard_plot(
     lnRR_mod_immune_category_high,
     group = "study_id",
-    xlab  = "lnRR",
+    xlab  = "Log Response Ratio (lnRR)",
     mod   = "immune_category_high",
     g     = TRUE,
     k.pos = "right",
@@ -418,17 +484,19 @@ immune_category_high_mod_orchard.lnRR <-
     branch.size = 1.2,   # study CI lines
     twig.size   = 0.8    # study dots
   ) +
-  scale_fill_manual(values = pal_pastel) +
-  # Clean, axis-only look
-  theme_classic(base_size = 11) +
+  # Pastel fill (use named palette if possible)
+  scale_fill_manual(values = pal_pastel_named) +
+  # Reference line (no effect)
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black", linewidth = 0.4) +
+  # Apply the same publication theme
+  theme_pub_large +   # swap to theme_pub if single standalone figure
   theme(
-    axis.text.y = element_text(angle = 0),
-    legend.position = "none"
+    legend.position = "none",
+    panel.grid = element_blank(),
+    # Make category labels clear + black (and bold if you want)
+    axis.text.y = element_text(face = "bold", color = "black")
   ) +
-  # Reference at no effect
-  geom_vline(xintercept = 0, linetype = "dashed") +
-  labs(title = NULL) +
-  patchwork::plot_annotation(tag_levels = "A")
+  labs(title = NULL)
 
 # shrink the summary bubble and the PI line on the summary layer
 immune_category_high_mod_orchard.lnRR$layers[[4]]$geom_params$fatten    <- 1.7  # default is 4
@@ -471,30 +539,37 @@ r2_ml(lnRR_mod_pharmaceutical)
 ## Figure 4
 # The moderating effects of pharmaceutical_class on response magnitude 
 
+pharma_colours <- c(
+  "Antibiotic"       = "#D1B3E0",  # blue (WBC tone, consistent)
+  "Antidepressant"   = "#F7C9A9",  # orange
+  "Contraceptive"    = "#8FBCE6",  # purple
+  "Anti-inflammatory" = "#9FD5C0" # teal
+)
+
 # Build the orchard
 pharmaceutical_mod_orchard.lnRR <-
   orchaRd::orchard_plot(
     lnRR_mod_pharmaceutical,
     group = "study_id",
-    xlab  = "lnRR",
+    xlab  = "Log Response Ratio (lnRR)",
     mod   = "pharmaceutical_class",
     g     = TRUE,
     k.pos = "right",
     colour = FALSE,
     fill   = TRUE,
-    trunk.size  = 2.4,   # summary CI line
-    branch.size = 1.2,   # study CI lines
-    twig.size   = 0.8    # study dots
+    trunk.size  = 2.4,
+    branch.size = 1.2,
+    twig.size   = 0.8
   ) +
-  # Pastel colours
-  scale_fill_manual(values = pal_pastel) +
-  # Axis-only look + zero line
-  theme_classic(base_size = 11) +
+  scale_fill_manual(values = pharma_colours) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black", linewidth = 0.4) +
+  theme_pub_large +
   theme(
-    axis.text.y = element_text(angle = 0),
-    legend.position = "none"
+    legend.position = "none",
+    panel.grid = element_blank(),
+    axis.text.y = element_text(face = "bold", color = "black")
   ) +
-  geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.4, alpha = 0.7)
+  labs(title = NULL)
 
 # Shrink the big summary bubble (layer [[4]] is the summary pointrange)
 pharmaceutical_mod_orchard.lnRR$layers[[4]]$geom_params$fatten    <- 1.7 # default ~4
@@ -759,37 +834,42 @@ lnRR_sex_mod_results <- mod_results(lnRR_mod_sex, mod = "sex", data = data, grou
 ```
 
 ```{r}
-#Figure 6
+#Figure
+pal_sex <- c(
+  "Not reported" = "#9FD5C0",  # light grey (neutral)
+  "Mixed"        = "#8FBCE6",  # blue (same as WBC tone for consistency)
+  "Male"         = "#F7C9A9"   # orange (balanced contrast)
+)
+
 
 sex_mod_orchard.lnRR <-
   orchaRd::orchard_plot(
     lnRR_mod_sex,
     group = "study_id",
-    xlab  = "lnRR",
+    xlab  = "Log Response Ratio (lnRR)",
     mod   = "sex",
     g     = TRUE,
     k.pos = "right",
     colour = FALSE,
     fill   = TRUE,
-    trunk.size  = 2.4,   # thinner summary CI line
-    branch.size = 1.2,   # thinner study CI lines
-    twig.size   = 0.8    # smaller study dots
+    trunk.size  = 2.4,
+    branch.size = 1.2,
+    twig.size   = 0.8
   ) +
-  scale_fill_manual(values = pal_pastel) +    # pastel palette
-  # Clean, axis-only look
-  theme_classic(base_size = 11) +
+  scale_fill_manual(values = pal_sex) +
+  geom_vline(xintercept = 0, linetype = "dashed",
+             color = "black", linewidth = 0.4) +
+  theme_pub_large +
   theme(
-    axis.text.y = element_text(angle = 0),
-    legend.position = "none"
+    legend.position = "none",
+    panel.grid = element_blank(),
+    axis.text.y = element_text(face = "bold", color = "black")
   ) +
-  # Reference at no effect
-  geom_vline(xintercept = 0, linetype = "dashed") +
-  labs(title = NULL) +
-  patchwork::plot_annotation(tag_levels = "A")  # if you’re using patchwork
+  labs(title = NULL)
 
-# shrink the summary bubble and the PI line on the summary layer
-sex_mod_orchard.lnRR$layers[[4]]$geom_params$fatten    <- 1.7  # default is 4
-sex_mod_orchard.lnRR$layers[[4]]$geom_params$linewidth <- 0.35 # ggplot ≥3.4
+# Slim summary layer
+sex_mod_orchard.lnRR$layers[[4]]$geom_params$fatten    <- 1.7
+sex_mod_orchard.lnRR$layers[[4]]$geom_params$linewidth <- 0.35
 
 sex_mod_orchard.lnRR
 ```
@@ -837,36 +917,40 @@ lnRR_age_mod_results <- mod_results(lnRR_mod_age, mod = "age_recode", data = dat
 ```
 
 ```{r}
-## Figure 7
+## Figure 
+pal_age <- c(
+  "Not reported"     = "#9FD5C0",  # neutral grey
+  "Early_life_stage" = "#8FBCE6",  # blue
+  "Adult"            = "#F7C9A9"   # orange
+)
+
 age_mod_orchard.lnRR <-
   orchaRd::orchard_plot(
     lnRR_mod_age,
     group = "study_id",
-    xlab  = "lnRR",
+    xlab  = "Log Response Ratio (lnRR)",
     mod   = "age_recode",
     g     = TRUE,
     k.pos = "right",
     colour = FALSE,
     fill   = TRUE,
-    trunk.size  = 2.4,   # thinner summary CI line
-    branch.size = 1.2,   # thinner study CI lines
-    twig.size   = 0.8    # smaller study dots
+    trunk.size  = 2.4,
+    branch.size = 1.2,
+    twig.size   = 0.8
   ) +
-  scale_fill_manual(values = pal_pastel) +    # pastel palette
-  # Clean, axis-only look
-  theme_classic(base_size = 11) +
+  scale_fill_manual(values = pal_age) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black", linewidth = 0.4) +
+  theme_pub_large +
   theme(
-    axis.text.y = element_text(angle = 0),
-    legend.position = "none"
+    legend.position = "none",
+    panel.grid = element_blank(),
+    axis.text.y = element_text(face = "bold", color = "black")
   ) +
-  # Reference at no effect
-  geom_vline(xintercept = 0, linetype = "dashed") +
-  labs(title = NULL) +
-  patchwork::plot_annotation(tag_levels = "A")  # if you’re using patchwork
+  labs(title = NULL)
 
-# shrink the summary bubble and the PI line on the summary layer
-age_mod_orchard.lnRR$layers[[4]]$geom_params$fatten    <- 1.7  # default is 4
-age_mod_orchard.lnRR$layers[[4]]$geom_params$linewidth <- 0.35 # ggplot ≥3.4
+# Shrink summary bubble and slim summary CI line (if layer 4 is summary)
+age_mod_orchard.lnRR$layers[[4]]$geom_params$fatten    <- 1.7
+age_mod_orchard.lnRR$layers[[4]]$geom_params$linewidth <- 0.35
 
 age_mod_orchard.lnRR
 ```

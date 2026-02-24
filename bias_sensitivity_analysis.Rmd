@@ -339,229 +339,423 @@ print(time_lag_bias)
 
 data$leave_study <- as.factor(data$study_id)
 
-### create a list to contain model estimates
-leave_study_out_model_lnRR <- list()
-VCV_leave_study_out_lnRR <- list()
+leave_study_out_model_lnRR <- vector("list", length(levels(data$leave_study)))
+V_leave_study_out_lnRR     <- vector("list", length(levels(data$leave_study)))
 
+# store status so you know which iteration had issues
+loo_status <- data.frame(
+  removed_study = levels(data$leave_study),
+  ok = FALSE,
+  message = NA_character_
+)
 
-### repeatedly run the multilevel model, leaving out one study at a time
-for(i in 1:length(levels(data$leave_study))){
-  ### create the data with one study removed at a time
-  data_study_leave <- data %>% filter(leave_study != levels(data$leave_study)[i])
-  
-  ### create a list of VCV matrices for following model fitting
-  VCV_leave_study_out_lnRR[[i]] <- impute_covariance_matrix(vi = data_study_leave$lnRRv, cluster = data_study_leave$study_id, r = 0.5)
-  
-  ### model fitting
-  leave_study_out_model_lnRR[[i]] <- rma.mv(yi = lnRR, V = VCV_leave_study_out_lnRR[[i]], 
-                                            random = list(~1 | study_id,
-                                                          ~1 | assay_id),
-                                            method = "REML", 
-                                            test = "t",
-                                            data = data_study_leave,
-                                            sparse = TRUE)
+# helper: enforce PD
+make_pd <- function(V, ridge = 1e-10) {
+  V <- as.matrix(V)
+  diag(V) <- diag(V) + ridge
+  # nearPD is very effective when V is "almost" PD
+  V_pd <- Matrix::nearPD(V, corr = FALSE, keepDiag = TRUE)$mat
+  as.matrix(V_pd)
 }
 
-results.leave_study_out_model_lnRR <- as.data.frame(cbind(
-  sapply(leave_study_out_model_lnRR, function(x) summary(x)$beta), 
-  sapply(leave_study_out_model_lnRR, function(x) summary(x)$se),   
-  sapply(leave_study_out_model_lnRR, function(x) summary(x)$zval), 
-  sapply(leave_study_out_model_lnRR, function(x) summary(x)$pval), 
-  sapply(leave_study_out_model_lnRR, function(x) summary(x)$ci.lb),
-  sapply(leave_study_out_model_lnRR, function(x) summary(x)$ci.ub) 
-))
+for (i in seq_along(levels(data$leave_study))) {
 
-colnames(results.leave_study_out_model_lnRR) <- c("Estimate", "SE", "zval", "pval", "ci.lb", "ci.ub")
-results.leave_study_out_model_lnRR$study_id <- unique(data$study_id)
+  data_study_leave <- data %>%
+    filter(leave_study != levels(data$leave_study)[i]) %>%
+    mutate(
+      # floor variances to avoid 0 or numerically tiny values
+      lnRRv = pmax(lnRRv, 1e-10)
+    )
 
-# Display the results table
-kable(results.leave_study_out_model_lnRR) %>%
-  kable_styling("striped", position = "left") %>%
-  scroll_box(width = "100%", height = "500px")
+  fit_i <- tryCatch({
 
-#Leave one study out lnRR plot
-leave_one_study_out_lnRR_forest_plot <- ggplot(results.leave_study_out_model_lnRR, 
-                                               aes(x = fct_reorder(as.factor(study_id), Estimate), 
-                                                   y = Estimate, 
-                                                   ymin = ci.lb, 
-                                                   ymax = ci.ub)) +
-  geom_pointrange() +
-  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
-  theme_bw() +
-  theme(legend.position = "none",
-        axis.text = element_text(color = "black"),
-        axis.title = element_text(face = "bold", color = "black"),
-        plot.caption = element_text(size = 10, color = "gray10", face = "italic"),
-        axis.text.y = element_text(size = 8)) +
-  labs(caption = "The value in each point is the point estimate excluding one study at a time",
-       x = "Study ID",
-       y = "lnRR") +
-  ylim(-0.6, 0.2) +
-  coord_flip()
+    # Build V
+    V_i <- metafor::vcalc(
+      vi      = data_study_leave$lnRRv,
+      cluster = data_study_leave$study_id,
+      obs     = data_study_leave$assay_id,
+      rho     = 0.5
+    )
+
+    # Force V to be PD
+    V_i <- make_pd(V_i, ridge = 1e-10)
+
+    V_leave_study_out_lnRR[[i]] <- V_i
+
+    # Fit model
+    m_i <- rma.mv(
+      yi = lnRR,
+      V  = V_i,
+      random = list(~1 | study_id,
+                    ~1 | assay_id),
+      method  = "REML",
+      test    = "t",
+      data    = data_study_leave,
+      sparse  = TRUE,
+      control = list(stepadj = 0.5, maxiter = 5000)
+    )
+
+    loo_status$ok[i] <- TRUE
+    loo_status$message[i] <- "OK"
+    m_i
+
+  }, error = function(e) {
+
+    # Fallback: diagonal V only (assumes independence within study) so loop completes
+    # This is preferable to losing the entire sensitivity analysis.
+    loo_status$ok[i] <- FALSE
+    loo_status$message[i] <- paste("FALLBACK diag(V):", conditionMessage(e))
+
+    V_diag <- diag(pmax(data_study_leave$lnRRv, 1e-10))
+    V_leave_study_out_lnRR[[i]] <- V_diag
+
+    rma.mv(
+      yi = lnRR,
+      V  = V_diag,
+      random = list(~1 | study_id,
+                    ~1 | assay_id),
+      method  = "REML",
+      test    = "t",
+      data    = data_study_leave,
+      sparse  = TRUE,
+      control = list(stepadj = 0.5, maxiter = 5000)
+    )
+  })
+
+  leave_study_out_model_lnRR[[i]] <- fit_i
+}
+
+# Extract results
+results.leave_study_out_model_lnRR <- data.frame(
+  Estimate = sapply(leave_study_out_model_lnRR, function(x) as.numeric(coef(x))),
+  SE       = sapply(leave_study_out_model_lnRR, function(x) x$se),
+  zval     = sapply(leave_study_out_model_lnRR, function(x) x$zval),
+  pval     = sapply(leave_study_out_model_lnRR, function(x) x$pval),
+  ci.lb    = sapply(leave_study_out_model_lnRR, function(x) x$ci.lb),
+  ci.ub    = sapply(leave_study_out_model_lnRR, function(x) x$ci.ub),
+  study_id = levels(data$leave_study)
+)
+
+# Inspect which iterations needed the fallback (important for transparency)
+loo_status %>%
+  arrange(ok) %>%
+  kable() %>%
+  kable_styling("striped", position = "left")
+
+# Plot (consistent style)
+leave_one_study_out_lnRR_forest_plot <- ggplot(
+  results.leave_study_out_model_lnRR,
+  aes(
+    x = fct_reorder(as.factor(study_id), Estimate),
+    y = Estimate,
+    ymin = ci.lb,
+    ymax = ci.ub
+  )
+) +
+  geom_pointrange(color = "black") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black", linewidth = 0.5) +
+  coord_flip() +
+  theme_pub_large +
+  theme(
+    legend.position = "none",
+    axis.text.y = element_text(size = 8, color = "black")
+  ) +
+  labs(x = "Study ID",
+    y = "lnRR"
+  )
 
 print(leave_one_study_out_lnRR_forest_plot)
 
-results.leave_study_out_model_lnRR %>% 
-  summarise(estimate = mean(Estimate), # calculate the mean coefficients across the models generated
-            se = mean(SE), 
-            zval = mean(zval), 
-            pval = mean(pval), 
-            ci.lb = mean(ci.lb), 
-            ci.ub = mean(ci.ub)) %>% 
-  kable() %>% kable_styling("striped", position = "left")
+#ggsave(filename = here::here("figures", "Figures4_leave_one_study_out_lnRR.jpg"), plot = leave_one_study_out_lnRR_forest_plot, width = 120, height = 90, units = "mm", scale = 2, dpi = 800)
 
 ```
 
 ```{r}
-#### *Intercept only model (lnVR)*
 
+#lnVR - leave one study out
 data$leave_study <- as.factor(data$study_id)
 
-### create a list to contain model estimates
-leave_study_out_model_lnVR <- list()
-VCV_leave_study_out_lnVR <- list()
+leave_study_out_model_lnVR <- vector("list", length(levels(data$leave_study)))
+V_leave_study_out_lnVR     <- vector("list", length(levels(data$leave_study)))
 
-### repeatedly run the multilevel model, leaving out one study at a time
-for(i in 1:length(levels(data$leave_study))){
-  data_study_leave <- data %>% filter(leave_study != levels(data$leave_study)[i])
-  
-  VCV_leave_study_out_lnVR[[i]] <- impute_covariance_matrix(vi = data_study_leave$lnVRv, cluster = data_study_leave$study_id, r = 0.5)
-  
-  leave_study_out_model_lnVR[[i]] <- rma.mv(yi = lnVR, V = VCV_leave_study_out_lnVR[[i]], 
-                                            random = list(~1 | study_id,
-                                                          ~1 | assay_id),
-                                            method = "REML", 
-                                            test = "t",
-                                            data = data_study_leave,
-                                            sparse = TRUE)
+loo_status_lnVR <- data.frame(
+  removed_study = levels(data$leave_study),
+  ok = FALSE,
+  message = NA_character_
+)
+
+# helper: enforce PD
+make_pd <- function(V, ridge = 1e-10) {
+  V <- as.matrix(V)
+  diag(V) <- diag(V) + ridge
+  V_pd <- Matrix::nearPD(V, corr = FALSE, keepDiag = TRUE)$mat
+  as.matrix(V_pd)
 }
 
-results.leave_study_out_model_lnVR <- as.data.frame(cbind(
-  sapply(leave_study_out_model_lnVR, function(x) summary(x)$beta), 
-  sapply(leave_study_out_model_lnVR, function(x) summary(x)$se),  
-  sapply(leave_study_out_model_lnVR, function(x) summary(x)$zval),
-  sapply(leave_study_out_model_lnVR, function(x) summary(x)$pval), 
-  sapply(leave_study_out_model_lnVR, function(x) summary(x)$ci.lb),
-  sapply(leave_study_out_model_lnVR, function(x) summary(x)$ci.ub) 
-))
+for (i in seq_along(levels(data$leave_study))) {
 
-colnames(results.leave_study_out_model_lnVR) <- c("Estimate", "SE", "zval", "pval", "ci.lb", "ci.ub")
-results.leave_study_out_model_lnVR$study_id <- unique(data$study_id)
+  data_study_leave <- data %>%
+    filter(leave_study != levels(data$leave_study)[i]) %>%
+    mutate(
+      lnVRv = pmax(lnVRv, 1e-10)   # floor variances
+    )
 
-# Display the results table
-kable(results.leave_study_out_model_lnVR) %>%
-  kable_styling("striped", position = "left") %>%
-  scroll_box(width = "100%", height = "500px")
+  fit_i <- tryCatch({
 
-leave_one_study_out_lnVR_forest_plot <- ggplot(results.leave_study_out_model_lnVR, 
-                                               aes(x = fct_reorder(as.factor(study_id), Estimate), 
-                                                   y = Estimate, 
-                                                   ymin = ci.lb, 
-                                                   ymax = ci.ub)) +
-  geom_pointrange() +
-  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
-  theme_bw() +
-  theme(legend.position = "none",
-        axis.text = element_text(color = "black"),
-        axis.title = element_text(face = "bold", color = "black"),
-        plot.caption = element_text(size = 10, color = "gray10", face = "italic"),
-        axis.text.y = element_text(size = 8)) +
-  labs(caption = "The value in each point is the point estimate excluding one study at a time",
-       x = "Study ID",
-       y = "lnVR") +
-  coord_flip()
+    # Build V
+    V_i <- metafor::vcalc(
+      vi      = data_study_leave$lnVRv,
+      cluster = data_study_leave$study_id,
+      obs     = data_study_leave$assay_id,
+      rho     = 0.5
+    )
+
+    # Force V to be PD
+    V_i <- make_pd(V_i, ridge = 1e-10)
+
+    V_leave_study_out_lnVR[[i]] <- V_i
+
+    # Fit model
+    m_i <- rma.mv(
+      yi = lnVR,
+      V  = V_i,
+      random = list(~1 | study_id,
+                    ~1 | assay_id),
+      method  = "REML",
+      test    = "t",
+      data    = data_study_leave,
+      sparse  = TRUE,
+      control = list(stepadj = 0.5, maxiter = 5000)
+    )
+
+    loo_status_lnVR$ok[i] <- TRUE
+    loo_status_lnVR$message[i] <- "OK"
+    m_i
+
+  }, error = function(e) {
+
+    # Fallback: diagonal V only (assumes independence within study)
+    loo_status_lnVR$ok[i] <- FALSE
+    loo_status_lnVR$message[i] <- paste("FALLBACK diag(V):", conditionMessage(e))
+
+    V_diag <- diag(pmax(data_study_leave$lnVRv, 1e-10))
+    V_leave_study_out_lnVR[[i]] <- V_diag
+
+    rma.mv(
+      yi = lnVR,
+      V  = V_diag,
+      random = list(~1 | study_id,
+                    ~1 | assay_id),
+      method  = "REML",
+      test    = "t",
+      data    = data_study_leave,
+      sparse  = TRUE,
+      control = list(stepadj = 0.5, maxiter = 5000)
+    )
+  })
+
+  leave_study_out_model_lnVR[[i]] <- fit_i
+}
+
+# Extract results
+results.leave_study_out_model_lnVR <- data.frame(
+  Estimate = sapply(leave_study_out_model_lnVR, function(x) as.numeric(coef(x))),
+  SE       = sapply(leave_study_out_model_lnVR, function(x) x$se),
+  zval     = sapply(leave_study_out_model_lnVR, function(x) x$zval),
+  pval     = sapply(leave_study_out_model_lnVR, function(x) x$pval),
+  ci.lb    = sapply(leave_study_out_model_lnVR, function(x) x$ci.lb),
+  ci.ub    = sapply(leave_study_out_model_lnVR, function(x) x$ci.ub),
+  study_id = levels(data$leave_study)
+)
+
+# Inspect which iterations needed fallback
+loo_status_lnVR %>%
+  arrange(ok) %>%
+  kable() %>%
+  kable_styling("striped", position = "left")
+
+# Plot (consistent style)
+leave_one_study_out_lnVR_forest_plot <- ggplot(
+  results.leave_study_out_model_lnVR,
+  aes(
+    x = fct_reorder(as.factor(study_id), Estimate),
+    y = Estimate,
+    ymin = ci.lb,
+    ymax = ci.ub
+  )
+) +
+  geom_pointrange(color = "black") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black", linewidth = 0.4) +
+  coord_flip() +
+  theme_pub_large +
+  theme(
+    legend.position = "none",
+    axis.text.y = element_text(size = 8, color = "black")
+  ) +
+  labs(x = "Study ID",
+    y = "lnVR"
+  )
 
 print(leave_one_study_out_lnVR_forest_plot)
 
-results.leave_study_out_model_lnVR %>% 
-  summarise(estimate = mean(Estimate), 
-            se = mean(SE), 
-            zval = mean(zval), 
-            pval = mean(pval), 
-            ci.lb = mean(ci.lb), 
-            ci.ub = mean(ci.ub)) %>% 
-  kable() %>% kable_styling("striped", position = "left")
-
+#ggsave(filename = here::here("figures", "Figures5_leave_one_study_out_lnR.jpg"), plot = leave_one_study_out_lnVR_forest_plot, width = 120, height = 90, units = "mm", scale = 2, dpi = 800)
 ```
+
 
 ```{r}
 ### *Leave one species out*
 
 #### *Intercept only model (lnRR)*
 
-# Convert species_latin to a factor and create a new column for the leave-one-out procedure
+# Convert species_latin to a factor for leave-one-out
 data$leave_species <- as.factor(data$species_latin)
 
-# Initialize lists to contain the model estimates and VCV matrices
-leave_species_out_model_lnRR <- list()
-VCV_leave_species_out_lnRR <- list()
+leave_species_out_model_lnRR <- vector("list", length(levels(data$leave_species)))
+V_leave_species_out_lnRR     <- vector("list", length(levels(data$leave_species)))
 
-# Iteratively run the multilevel model, leaving out one species at a time
-for(i in 1:length(levels(data$leave_species))){
-  # Create the data with one species removed at a time
-  data_species_leave <- data %>% filter(leave_species != levels(data$leave_species)[i])
-  
-  # Create a VCV matrix for the subset data
-  VCV_leave_species_out_lnRR[[i]] <- impute_covariance_matrix(vi = data_species_leave$lnRRv, cluster = data_species_leave$study_id, r = 0.5)
-  
-  # Model fitting
-  leave_species_out_model_lnRR[[i]] <- rma.mv(yi = data_species_leave$lnRR,
-                                              V = VCV_leave_species_out_lnRR[[i]],
-                                              random = list(~1 | study_id,
-                                                            ~1 | assay_id),
-                                              method = "REML", 
-                                              test = "t",
-                                              data = data_species_leave,
-                                              sparse = TRUE)
-} 
+loo_status_species_lnRR <- data.frame(
+  removed_species = levels(data$leave_species),
+  ok = FALSE,
+  message = NA_character_
+)
 
+# helper: enforce PD
+make_pd <- function(V, ridge = 1e-10) {
+  V <- as.matrix(V)
+  diag(V) <- diag(V) + ridge
+  V_pd <- Matrix::nearPD(V, corr = FALSE, keepDiag = TRUE)$mat
+  as.matrix(V_pd)
+}
 
-results.leave_species_out_model_lnRR <- as.data.frame(cbind(
-  sapply(leave_species_out_model_lnRR, function(x) summary(x)$beta), 
-  sapply(leave_species_out_model_lnRR, function(x) summary(x)$se),   
-  sapply(leave_species_out_model_lnRR, function(x) summary(x)$zval), 
-  sapply(leave_species_out_model_lnRR, function(x) summary(x)$pval), 
-  sapply(leave_species_out_model_lnRR, function(x) summary(x)$ci.lb),
-  sapply(leave_species_out_model_lnRR, function(x) summary(x)$ci.ub) 
-))
+for (i in seq_along(levels(data$leave_species))) {
 
-colnames(results.leave_species_out_model_lnRR) <- c("Estimate", "SE", "zval", "pval", "ci.lb", "ci.ub") 
-results.leave_species_out_model_lnRR$species_latin <- unique(data$species_latin)
+  # Remove one species at a time
+  data_species_leave <- data %>%
+    filter(leave_species != levels(data$leave_species)[i]) %>%
+    mutate(
+      lnRRv = pmax(lnRRv, 1e-10)  # floor variances
+    )
 
-# Display the results table
+  fit_i <- tryCatch({
+
+    # Build V (clustered by study_id; obs by assay_id)
+    V_i <- metafor::vcalc(
+      vi      = data_species_leave$lnRRv,
+      cluster = data_species_leave$study_id,
+      obs     = data_species_leave$assay_id,
+      rho     = 0.5
+    )
+
+    # Force V to be PD
+    V_i <- make_pd(V_i, ridge = 1e-10)
+
+    V_leave_species_out_lnRR[[i]] <- V_i
+
+    # Fit model
+    m_i <- rma.mv(
+      yi = lnRR,
+      V  = V_i,
+      random = list(~1 | study_id,
+                    ~1 | assay_id),
+      method  = "REML",
+      test    = "t",
+      data    = data_species_leave,
+      sparse  = TRUE,
+      control = list(stepadj = 0.5, maxiter = 5000)
+    )
+
+    loo_status_species_lnRR$ok[i] <- TRUE
+    loo_status_species_lnRR$message[i] <- "OK"
+    m_i
+
+  }, error = function(e) {
+
+    # Fallback: diagonal V only (assumes independence within study)
+    loo_status_species_lnRR$ok[i] <- FALSE
+    loo_status_species_lnRR$message[i] <- paste("FALLBACK diag(V):", conditionMessage(e))
+
+    V_diag <- diag(pmax(data_species_leave$lnRRv, 1e-10))
+    V_leave_species_out_lnRR[[i]] <- V_diag
+
+    rma.mv(
+      yi = lnRR,
+      V  = V_diag,
+      random = list(~1 | study_id,
+                    ~1 | assay_id),
+      method  = "REML",
+      test    = "t",
+      data    = data_species_leave,
+      sparse  = TRUE,
+      control = list(stepadj = 0.5, maxiter = 5000)
+    )
+  })
+
+  leave_species_out_model_lnRR[[i]] <- fit_i
+}
+
+# Extract results table
+results.leave_species_out_model_lnRR <- data.frame(
+  Estimate = sapply(leave_species_out_model_lnRR, function(x) as.numeric(coef(x))),
+  SE       = sapply(leave_species_out_model_lnRR, function(x) x$se),
+  zval     = sapply(leave_species_out_model_lnRR, function(x) x$zval),
+  pval     = sapply(leave_species_out_model_lnRR, function(x) x$pval),
+  ci.lb    = sapply(leave_species_out_model_lnRR, function(x) x$ci.lb),
+  ci.ub    = sapply(leave_species_out_model_lnRR, function(x) x$ci.ub),
+  species_latin = levels(data$leave_species)
+)
+
+# Show status (which species needed fallback)
+loo_status_species_lnRR %>%
+  arrange(ok) %>%
+  kable() %>%
+  kable_styling("striped", position = "left") %>%
+  scroll_box(width = "100%", height = "300px")
+
+# Display results table
 kable(results.leave_species_out_model_lnRR) %>%
   kable_styling("striped", position = "left") %>%
   scroll_box(width = "100%", height = "500px")
 
-leave_one_species_out_lnRR_forest_plot <- ggplot(results.leave_species_out_model_lnRR, 
-                                                 aes(x = fct_reorder(as.factor(species_latin), Estimate), 
-                                                     y = Estimate, 
-                                                     ymin = ci.lb, 
-                                                     ymax = ci.ub)) +
-  geom_pointrange() +
-  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
-  theme_bw() +
-  theme(legend.position = "none",
-        axis.text = element_text(color = "black"),
-        axis.title = element_text(face = "bold", color = "black"),
-        plot.caption = element_text(size = 10, color = "gray10", face = "italic"),
-        axis.text.y = element_text(size = 8)) +
-  labs(caption = "The value in each point is the estimate excluding one species at a time",
-       x = "Species Latin",
-       y = "lnRR") +
-  ylim(-0.6, 0.2) +
-  coord_flip()
+# Plot
+leave_one_species_out_lnRR_forest_plot <- ggplot(
+  results.leave_species_out_model_lnRR,
+  aes(
+    y = fct_reorder(as.factor(species_latin), Estimate),
+    x = Estimate,
+    xmin = ci.lb,
+    xmax = ci.ub
+  )
+) +
+  geom_pointrange(color = "black", orientation = "y") +
+  geom_vline(xintercept = 0, linetype = "dashed",
+             color = "black", linewidth = 0.4) +
+  coord_cartesian(xlim = c(-0.6, 0.2)) +
+  theme_pub_large +
+  theme(
+    legend.position = "none",
+    axis.text.y = element_text(size = 8, color = "black")
+  ) +
+  labs(
+    x = "lnRR",
+    y = "Species (Latin)")
 
 print(leave_one_species_out_lnRR_forest_plot)
 
-results.leave_species_out_model_lnRR %>% 
-  summarise(estimate = mean(Estimate), 
-            se = mean(SE), 
-            zval = mean(zval), 
-            pval = mean(pval), 
-            ci.lb = mean(ci.lb), 
-            ci.ub = mean(ci.ub)) %>% 
-  kable() %>% kable_styling("striped", position = "left")
+#ggsave(filename = here::here("figures", "Figures6_leave_one_species_out_lnRR.jpg"), plot = leave_one_species_out_lnRR_forest_plot, width = 120, height = 90, units = "mm", scale = 2, dpi = 800)
+
+
+# Summarise mean coefficients across the leave-one-out fits (optional)
+results.leave_species_out_model_lnRR %>%
+  summarise(
+    estimate = mean(Estimate),
+    se = mean(SE),
+    zval = mean(zval),
+    pval = mean(pval),
+    ci.lb = mean(ci.lb),
+    ci.ub = mean(ci.ub)
+  ) %>%
+  kable() %>%
+  kable_styling("striped", position = "left")
 ```
 
 ```{r}
@@ -610,25 +804,33 @@ kable(results.leave_species_out_model_lnVR) %>%
   kable_styling("striped", position = "left") %>%
   scroll_box(width = "100%", height = "500px")
 
-leave_one_species_out_lnVR_forest_plot <- ggplot(results.leave_species_out_model_lnVR, 
-                                                 aes(x = fct_reorder(as.factor(species_latin), Estimate), 
-                                                     y = Estimate, 
-                                                     ymin = ci.lb, 
-                                                     ymax = ci.ub)) +
-  geom_pointrange() +
-  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
-  theme_bw() +
-  theme(legend.position = "none",
-        axis.text = element_text(color = "black"),
-        axis.title = element_text(face = "bold", color = "black"),
-        plot.caption = element_text(size = 10, color = "gray10", face = "italic"),
-        axis.text.y = element_text(size = 8)) +
-  labs(caption = "The value in each point is the estimate excluding one species at a time",
-       x = "Species Latin",
-       y = "lnVR") +
-  coord_flip()
+leave_one_species_out_lnVR_forest_plot <- ggplot(
+  results.leave_species_out_model_lnVR,
+  aes(
+    x = fct_reorder(as.factor(species_latin), Estimate),
+    y = Estimate,
+    ymin = ci.lb,
+    ymax = ci.ub
+  )
+) +
+  geom_pointrange(color = "black") +
+  geom_hline(yintercept = 0, linetype = "dashed",
+             color = "black", linewidth = 0.4) +
+  coord_flip() +
+  theme_pub_large +
+  theme(
+    legend.position = "none",
+    axis.text.y = element_text(size = 8, color = "black")
+  ) +
+  labs(
+    x = "Species (Latin)",
+    y = "Log Variability Ratio (lnVR)"
+  )
+
 
 print(leave_one_species_out_lnVR_forest_plot)
+
+#ggsave(filename = here::here("figures", "Figures7_leave_one_species_out_lnVR.jpg"), plot = leave_one_species_out_lnVR_forest_plot, width = 120, height = 90, units = "mm", scale = 2, dpi = 800)
 
 results.leave_species_out_model_lnVR %>% 
   summarise(estimate = mean(Estimate), 
@@ -698,12 +900,14 @@ leave_one_pharmaceutical_class_out_lnRR_forest_plot <- ggplot(results.leave_phar
         axis.title = element_text(face = "bold", color = "black"),
         plot.caption = element_text(size = 10, color = "gray10", face = "italic"),
         axis.text.y = element_text(size = 8)) +
-  labs(caption = "The value in each point is the estimate excluding one pharmaceutical at a time",
-       x = "Pharmaceutical Class",
+  labs(x = "Pharmaceutical Class",
        y = "lnRR") +
   coord_flip()
 
 print(leave_one_pharmaceutical_class_out_lnRR_forest_plot)
+
+#ggsave(filename = here::here("figures", "Figures8_leave_one_pharma_out_lnRR.jpg"), plot = leave_one_pharmaceutical_class_out_lnRR_forest_plot, width = 120, height = 90, units = "mm", scale = 2, dpi = 800)
+
 
 results.leave_pharmaceutical_class_out_model_lnRR %>% 
   summarise(estimate = mean(Estimate), 
@@ -770,12 +974,14 @@ leave_one_pharmaceutical_class_out_lnVR_forest_plot <- ggplot(results.leave_phar
         axis.title = element_text(face = "bold", color = "black"),
         plot.caption = element_text(size = 10, color = "gray10", face = "italic"),
         axis.text.y = element_text(size = 8)) +
-  labs(caption = "The value in each point is the estimate excluding one pharmaceutical at a time",
-       x = "Pharmaceutical Class",
+  labs(x = "Pharmaceutical Class",
        y = "lnVR") +
     coord_flip()
 
 print(leave_one_pharmaceutical_class_out_lnVR_forest_plot)
+
+ggsave(filename = here::here("figures", "Figures9_leave_one_pharma_out_lnVR.jpg"), plot = leave_one_pharmaceutical_class_out_lnVR_forest_plot, width = 120, height = 90, units = "mm", scale = 2, dpi = 800)
+
 
 results.leave_pharmaceutical_class_out_model_lnVR %>% 
   summarise(estimate = mean(Estimate), 

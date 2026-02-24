@@ -325,30 +325,59 @@ lnVR_percentage_change
 #Impacts of pharmaceutical exposure on fish immune response. (B) shows the difference in variances between control and treatment groups, also on a logarithmic scale, where negative values suggest a reduction in the inter-individual variability of immune response. Shorter whiskers represent 95% confidence intervals, while longer whiskers indicate 95% prediction intervals. 'k' represents the number of effect sizes, and the number of studies is in brackets. Each circle corresponds to an effect size, with its size scaled according to precision (inverse sampling error variance).
 
 # Figure 2
-intercept_only.lnVR__orchard <- orchaRd::orchard_plot(lnVR_intercept_only,
-                                                      group = "study_id",
-                                                      xlab = "lnVR",
-                                                      g = TRUE,
-                                                      k.pos = "right",
-                                                      colour = FALSE,
-                                                      fill = TRUE,  
-                                                      trunk.size = 0.8, 
-                                                      legend.pos = "none",
-                                                      branch.size = 1.5,
-                                                      twig.size = 0.5) +
-  scale_fill_manual(values = RColorBrewer::brewer.pal(8, "Dark2")[2]) +
+intercept_only.lnVR_orchard <- orchaRd::orchard_plot(
+  lnVR_intercept_only,
+  group = "study_id",
+  xlab = "Log Variability Ratio (lnVR)",
+  g = TRUE,
+  k.pos = "right",
+  colour = FALSE,
+  fill = TRUE,
+  trunk.size = 0.8,
+  legend.pos = "none",
+  branch.size = 1.5,
+  twig.size = 0.5
+) +
+  scale_fill_manual(values = metric_colours$lnVR) +
+  scale_colour_manual(values = "#E6955C") +   # darker border
   scale_x_discrete(labels = c("Model estimates")) +
+  theme_pub_large +
   theme(
-    panel.grid = element_blank(),
-    panel.grid.major = element_blank(),
-    panel.grid.minor = element_blank()
+    axis.text.y = element_text(face = "bold", size = 13, color = "black", angle = 90, vjust = 0.5, hjust = 0.5),
+    panel.grid = element_blank()
   )
 
-# Display the plot
-intercept_only.lnVR__orchard
+intercept_only.lnVR_orchard
+
+
+#ggsave(here("figures", "figure2_overall_lnVR.pdf"), width = 12, height = 7, units = "cm", scale = 2, dpi = 800)
+#ggsave(here("figures", "figure2_overall_lnVR.jpg"), width = 12, height = 7, units = "cm", scale = 2, dpi = 800)
 
 
 ```
+
+```{r}
+# Creating figure overall lnRR/lnVR
+figure1_combined <- 
+  intercept_only.lnRR_orchard +
+  intercept_only.lnVR_orchard +
+  plot_layout(ncol = 2) +
+  plot_annotation(tag_levels = "A") &
+  theme(
+    plot.tag = element_text(
+      size = 14,
+      face = "bold",
+      color = "black"
+    )
+  )
+
+
+#ggsave(filename = here::here("figures", "Figure3_overall_lnRR_lnVR.pdf"), plot = figure1_combined, device = cairo_pdf, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
+#ggsave(filename = here::here("figures", "Figure3_overall_lnRR_lnVR.jpg"), plot = figure1_combined, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
+
+
+```
+
 
 ```{r}
 #### Question: How does pharmaceutical exposure affect the variability of immune responses?
@@ -383,33 +412,40 @@ r2_ml(lnVR_mod_immune_category_high)
 # Figure 3
 # The moderating effects of immune traits, white blood cell count (WBC), humoral-mediated response, cytokines and cell-mediated response on response variability
 
-# 1) Soft pastel palette (4 classes shown in your plot)
-pal_pastel <- c("#BFD3E6", "#F7C9A9", "#D1B3E0", "#B9E3C6")
+pal_pastel_named <- c(
+  "WBC"          = "#8FBCE6",
+  "Humoral-mediated" = "#F7C9A9",
+  "Cytokines"    = "#D1B3E0",
+  "Cell-mediated"= "#9FD5C0"
+)
 
 # 2) Build the orchard with lighter geometry
+# Figure 3 (lnVR ~ immune_category_high)
+
 immune_category_high_mod_orchard.lnVR <-
   orchaRd::orchard_plot(
-    lnVR_mod_immune_category_high,
+    lnVR_mod_immune_category_high,   # <-- your lnVR moderator model
     group = "study_id",
-    xlab  = "lnVR",
+    xlab  = "Log Variability Ratio (lnVR)",
     mod   = "immune_category_high",
     g     = TRUE,
     k.pos = "right",
     colour = FALSE,
     fill   = TRUE,
-    trunk.size  = 2.4,   # thinner summary CI line
-    branch.size = 1.2,   # thinner study CI lines
-    twig.size   = 0.8    # smaller study dots
+    trunk.size  = 2.4,
+    branch.size = 1.2,
+    twig.size   = 0.8
   ) +
-  # Pastel colours
-  scale_fill_manual(values = pal_pastel) +
-  # Axis-only look + zero line
-  theme_classic(base_size = 11) +
+  scale_fill_manual(values = pal_pastel_named) +  # or pal_pastel if you didn't name it
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black", linewidth = 0.4) +
+  theme_pub_large +
   theme(
-    axis.text.y = element_text(angle = 0),
-    legend.position = "none"
+    legend.position = "none",
+    panel.grid = element_blank(),
+    axis.text.y = element_text(face = "bold", color = "black")
   ) +
-  geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.4, alpha = 0.7)
+  labs(title = NULL)
+
 
 # 3) Shrink the big summary bubble (layer [[4]] is the summary pointrange)
 immune_category_high_mod_orchard.lnVR$layers[[4]]$geom_params$fatten    <- 1.7 # default ~4
@@ -422,12 +458,30 @@ immune_category_high_mod_orchard.lnVR
 
 ```
 
+```{r}
+# Combine Figure 3A and 3B
+figure3_AB <-
+  (immune_category_high_mod_orchard.lnRR |
+   immune_category_high_mod_orchard.lnVR) +
+  plot_annotation(tag_levels = "A") &
+  theme(
+    plot.tag = element_text(
+      size = 18,
+      face = "bold",
+      color = "black"
+    )
+  )
+
+#ggsave(filename = here::here("figures", "Figure4_immune_lnRR_lnVR.pdf"), plot = figure3_AB, device = cairo_pdf, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
+
+#ggsave(filename = here::here("figures", "Figure4_immune_lnRR_lnVR.jpg"), plot = figure3_AB, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
+```
 
 
 ```{r}
 ## Question: Do pharmaceuticals vary in their effects on fish immune response variability?
 
-# moderate by pharmaceutical_class (lnRV)
+# moderate by pharmaceutical_class (lnVR)
 lnVR_mod_pharmaceutical <- rma.mv(yi = lnVR,
                                         V = lnVRVCV,
                                         random = list(~1 | study_id,
@@ -456,33 +510,39 @@ r2_ml(lnVR_mod_pharmaceutical)
 ### Figure 4
 #The moderating effects of pharmaceutical (B) response variability in immune response. Shorter whiskers represent 95% confidence intervals, while longer whiskers indicate 95% prediction intervals. 'k' represents the number of effect sizes, and the number of studies is in brackets. Each circle corresponds to an effect size, with its size scaled according to precision (inverse sampling error variance).
 
-# 1) Soft pastel palette (4 classes shown in your plot)
-pal_pastel <- c("#BFD3E6", "#F7C9A9", "#D1B3E0", "#B9E3C6")
+pharma_colours <- c(
+  "Antibiotic"       = "#D1B3E0",  # blue (WBC tone, consistent)
+  "Antidepressant"   = "#F7C9A9",  # orange
+  "Contraceptive"    = "#8FBCE6",  # purple
+  "Anti-inflammatory" = "#9FD5C0" # teal
+)
+
 
 # 2) Build the orchard with lighter geometry
 pharmaceutical_mod_orchard.lnVR <-
   orchaRd::orchard_plot(
     lnVR_mod_pharmaceutical,
     group = "study_id",
-    xlab  = "lnVR",
+    xlab  = "Log Variability Ratio (lnVR)",
     mod   = "pharmaceutical_class",
     g     = TRUE,
     k.pos = "right",
     colour = FALSE,
     fill   = TRUE,
-    trunk.size  = 2.4,   # thinner summary CI line
-    branch.size = 1.2,   # thinner study CI lines
-    twig.size   = 0.8    # smaller study dots
+    trunk.size  = 2.4,
+    branch.size = 1.2,
+    twig.size   = 0.8
   ) +
-  # Pastel colours
-  scale_fill_manual(values = pal_pastel) +
-  # Axis-only look + zero line
-  theme_classic(base_size = 11) +
+  scale_fill_manual(values = pharma_colours) +   # same colour mapping
+  geom_vline(xintercept = 0, linetype = "dashed",
+             color = "black", linewidth = 0.4) +
+  theme_pub_large +
   theme(
-    axis.text.y = element_text(angle = 0),
-    legend.position = "none"
+    legend.position = "none",
+    axis.text.y = element_text(face = "bold", color = "black"),
+    panel.grid = element_blank()
   ) +
-  geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.4, alpha = 0.7)
+  labs(title = NULL)
 
 # 3) Shrink the big summary bubble (layer [[4]] is the summary pointrange)
 pharmaceutical_mod_orchard.lnVR$layers[[4]]$geom_params$fatten    <- 1.7 # default ~4
@@ -493,6 +553,22 @@ pharmaceutical_mod_orchard.lnVR$layers[[4]]$geom_params$linewidth <- 0.35
 
 pharmaceutical_mod_orchard.lnVR
 ```
+
+```{r}
+#Combine Figure 4A and 4B
+figure4_AB <-
+  (pharmaceutical_mod_orchard.lnRR | pharmaceutical_mod_orchard.lnVR) +
+  plot_annotation(tag_levels = "A") &
+  theme(
+    plot.tag = element_text(size = 18, face = "bold", color = "black")
+  )
+
+#ggsave(filename = here::here("figures", "Figure4_immune_lnRR_lnVR.pdf"), plot = figure4_AB, device = cairo_pdf, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
+
+#ggsave(filename = here::here("figures", "Figure4_immune_lnRR_lnVR.jpg"), plot = figure4_AB, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
+
+```
+
 
 
 ```{r}
@@ -505,7 +581,6 @@ data_dosage_model <- data %>%
   filter(dosage != "not reported") %>% 
   filter(dosage_unit != "not reported") %>% 
   filter(!dosage_unit %in% c("nm", "um", "nM")) %>%
-  filter(dosage_adm == "waterborne") %>%  # Filter for waterborne exposure
   mutate(dosage = as.numeric(dosage),
          dosage_unit = as.character(dosage_unit),
          dosage_unit_consistent = case_when(
@@ -630,7 +705,7 @@ dosage_bubble_plot.lnVR <- bubble_plot(dosage_mod_lnVR_results, mod = "log_dosag
   theme(plot.title = element_text(size = 18),
         legend.position = "none", axis.title.x = element_text(size = 16), axis.title.y = element_text(size = 16),
         axis.text.y = element_text(size = 14), axis.text.x = element_text(size = 14)) +
-  xlab("Dosage")
+  xlab("Dosage (log10 scale)")
 dosage_bubble_plot.lnVR
 
 # Figure 5d)
@@ -644,12 +719,61 @@ duration_bubble_plot.lnVR <- bubble_plot(lnVR_mod_duration_results, mod = "durat
   theme(plot.title = element_text(size = 18),
         legend.position = "none", axis.title.x = element_text(size = 16), axis.title.y = element_text(size = 16),
         axis.text.y = element_text(size = 14), axis.text.x = element_text(size = 14)) +
-  xlab("Duration")
+  xlab("Duration (hours)")
 
 duration_bubble_plot.lnVR
 
 ```
 
+```{r}
+#Combine Figure 5C and 5D
+figure5_AB <-
+  (dosage_bubble_plot.lnRR | dosage_bubble_plot.lnVR) +
+  plot_annotation(
+    tag_levels = list(c("C", "D"))
+  ) &
+  theme(
+    plot.tag = element_text(size = 18, face = "bold", color = "black")
+  )
+
+#ggsave(filename = here::here("figures", "Figure5_dosage_lnRR_lnVR.pdf"), plot = figure5_AB, device = cairo_pdf, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
+
+#ggsave(filename = here::here("figures", "Figure5_dosage_lnRR_lnVR.jpg"), plot = figure5_AB, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
+```
+
+```{r}
+#Combine Figure 6E and 6F
+figure6_CD <-
+  (duration_bubble_plot.lnRR | duration_bubble_plot.lnVR) +
+  plot_annotation(
+    tag_levels = list(c("E", "F"))
+  ) &
+  theme(
+    plot.tag = element_text(size = 18, face = "bold", color = "black")
+  )
+
+#ggsave(filename = here::here("figures", "Figure6_duration_lnRR_lnVR.pdf"), plot = figure6_CD, device = cairo_pdf, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
+
+#ggsave(filename = here::here("figures", "Figure6_duration_lnRR_lnVR.jpg"), plot = figure6_CD, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
+```
+
+```{r}
+#Combine Figures 4, 5 and 6
+
+fig4_keep_tags <- wrap_elements(full = figure4_AB)
+fig5_keep_tags <- wrap_elements(full = figure5_AB)
+fig6_keep_tags <- wrap_elements(full = figure6_CD)
+
+figure456_vertical <-
+  fig4_keep_tags /
+  fig5_keep_tags /
+  fig6_keep_tags +
+  plot_layout(ncol = 1)
+
+#ggsave(filename = here::here("figures", "Figure7_duration_dose_lnRR_lnVR.pdf"), plot = figure456_vertical, device = cairo_pdf, width = 180, height = 200, units = "mm", scale = 2, dpi = 800)
+
+#ggsave(filename = here::here("figures", "Figure7_duration_dose_lnRR_lnVR.jpg"), plot = figure456_vertical, width = 180, height = 200, units = "mm", scale = 2, dpi = 800)
+```
 
 
 ```{r}
@@ -688,33 +812,47 @@ lnVR_mod_sex_figure <-
   orchaRd::orchard_plot(
     lnVR_mod_sex,
     group = "study_id",
-    xlab  = "lnVR",
+    xlab  = "Log Variability Ratio (lnVR)",
     mod   = "sex",
     g     = TRUE,
     k.pos = "right",
     colour = FALSE,
     fill   = TRUE,
-    trunk.size  = 2.4,   # thinner summary CI line
-    branch.size = 1.2,   # thinner study CI lines
-    twig.size   = 0.8    # smaller study dots
+    trunk.size  = 2.4,
+    branch.size = 1.2,
+    twig.size   = 0.8
   ) +
-  scale_fill_manual(values = pal_pastel) +    # pastel palette
-  # Clean, axis-only look
-  theme_classic(base_size = 11) +
+  scale_fill_manual(values = pal_sex) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black", linewidth = 0.4) +
+  theme_pub_large +
   theme(
-    axis.text.y = element_text(angle = 0),
-    legend.position = "none"
+    legend.position = "none",
+    panel.grid = element_blank(),
+    axis.text.y = element_text(face = "bold", color = "black")
   ) +
-  # Reference at no effect
-  geom_vline(xintercept = 0, linetype = "dashed") +
-  labs(title = NULL) +
-  patchwork::plot_annotation(tag_levels = "A")  # if you’re using patchwork
+  labs(title = NULL)
 
-# shrink the summary bubble and the PI line on the summary layer
-lnVR_mod_sex_figure$layers[[4]]$geom_params$fatten    <- 1.7  # default is 4
-lnVR_mod_sex_figure$layers[[4]]$geom_params$linewidth <- 0.35 # ggplot ≥3.4
+# Shrink summary bubble and slim summary CI line (if layer 4 is the summary layer)
+lnVR_mod_sex_figure$layers[[4]]$geom_params$fatten    <- 1.7
+lnVR_mod_sex_figure$layers[[4]]$geom_params$linewidth <- 0.35
 
 lnVR_mod_sex_figure
+```
+```{r}
+# Combine lnRR (A) and lnVR (B)
+figure_sex_AB <-
+  (sex_mod_orchard.lnRR | lnVR_mod_sex_figure) +
+  plot_annotation(tag_levels = "A") &
+  theme(
+    plot.tag = element_text(size = 18, face = "bold", color = "black")
+  )
+
+figure_sex_AB
+
+#ggsave(filename = here::here("figures", "Figure8_sex_lnRR_lnVR.pdf"), plot = figure_sex_AB, device = cairo_pdf, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
+
+#ggsave(filename = here::here("figures", "Figure8_sex_lnRR_lnVR.jpg"), plot = figure_sex_AB, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
+
 ```
 
 
@@ -764,37 +902,73 @@ r2_ml(lnVR_mod_age)
 ```
 
 ```{r}
-# Figure 7
+# Figure
 
 age_mod_orchard.lnVR <-
   orchaRd::orchard_plot(
     lnVR_mod_age,
     group = "study_id",
-    xlab  = "lnVR",
+    xlab  = "Log Variability Ratio (lnVR)",
     mod   = "age_recode",
     g     = TRUE,
     k.pos = "right",
     colour = FALSE,
     fill   = TRUE,
-    trunk.size  = 2.4,   # thinner summary CI line
-    branch.size = 1.2,   # thinner study CI lines
-    twig.size   = 0.8    # smaller study dots
+    trunk.size  = 2.4,
+    branch.size = 1.2,
+    twig.size   = 0.8
   ) +
-  scale_fill_manual(values = pal_pastel) +    # pastel palette
-  # Clean, axis-only look
-  theme_classic(base_size = 11) +
+  scale_fill_manual(values = pal_age) +
+  geom_vline(xintercept = 0, linetype = "dashed",
+             color = "black", linewidth = 0.4) +
+  theme_pub_large +
   theme(
-    axis.text.y = element_text(angle = 0),
-    legend.position = "none"
+    legend.position = "none",
+    panel.grid = element_blank(),
+    axis.text.y = element_text(face = "bold", color = "black")
   ) +
-  # Reference at no effect
-  geom_vline(xintercept = 0, linetype = "dashed") +
-  labs(title = NULL) +
-  patchwork::plot_annotation(tag_levels = "A")  # if you’re using patchwork
+  labs(title = NULL)
 
-# shrink the summary bubble and the PI line on the summary layer
-age_mod_orchard.lnVR$layers[[4]]$geom_params$fatten    <- 1.7  # default is 4
-age_mod_orchard.lnVR$layers[[4]]$geom_params$linewidth <- 0.35 # ggplot ≥3.4
+# Shrink summary bubble and slim summary CI line (if layer 4 is summary)
+age_mod_orchard.lnVR$layers[[4]]$geom_params$fatten    <- 1.7
+age_mod_orchard.lnVR$layers[[4]]$geom_params$linewidth <- 0.35
 
 age_mod_orchard.lnVR
+
 ```
+
+```{r}
+figure_age_CD <-
+  (age_mod_orchard.lnRR | age_mod_orchard.lnVR) +
+  plot_annotation(
+    tag_levels = list(c("C", "D"))
+  ) &
+  theme(
+    plot.tag = element_text(
+      size = 18,
+      face = "bold",
+      color = "black"
+    )
+  )
+
+#ggsave(filename = here::here("figures", "Figure9_age_lnRR_lnVR.pdf"), plot = figure_age_CD, device = cairo_pdf, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
+
+#ggsave(filename = here::here("figures", "Figure9_age_lnRR_lnVR.jpg"), plot = figure_age_CD, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
+
+#Combine A,B,C,D - Figure 10
+fig8_keep_tags <- wrap_elements(full = figure_sex_AB)
+fig9_keep_tags <- wrap_elements(full = figure_age_CD)
+
+
+figure10_vertical <-
+  fig8_keep_tags /
+  fig9_keep_tags +
+  plot_layout(ncol = 1)
+
+ggsave(filename = here::here("figures", "Figure10_sex_age_lnRR_lnVR.pdf"), plot = figure10_vertical, device = cairo_pdf, width = 180, height = 150, units = "mm", scale = 2, dpi = 800)
+
+ggsave(filename = here::here("figures", "Figure10_sex_age_lnRR_lnVR.png"), plot = figure10_vertical, width = 180, height = 150, units = "mm", scale = 2, dpi = 800)
+
+```
+
+

@@ -98,8 +98,7 @@ immune_pharmaceutical_class_bubble_plot <- pc_cb_summary_filtered %>%
   labs(x = "Immune trait",
     y = "Pharmaceutical class")
 
-ggsave("immune_pharma_bubble.png", immune_pharmaceutical_class_bubble_plot,
-       width = 9, height = 5, units = "in", dpi = 300)
+#ggsave("immune_pharma_bubble.png", immune_pharmaceutical_class_bubble_plot, width = 9, height = 5, units = "in", dpi = 300)
 
 
 ## A bar chart showing the total number of effect sizes per species
@@ -135,87 +134,159 @@ species_effect_size_count_bar_plot <- sp_summary %>%
 print(immune_pharmaceutical_class_bubble_plot)
 print(species_effect_size_count_bar_plot)
 
-# ggsave(here("figures", "main_text_figure_1.pdf"), width = 10, height = 13, units = "cm", scale = 2, dpi = 800)
- #ggsave(here("figures", "main_text_figure_1.jpg"), width = 10, height = 13, units = "cm", scale = 2, dpi = 800)
-
 ```
 
 # A bubble plot showing the number of effect sizes of each fish family
 ```{r}
-## A bar chart showing the total number of effect sizes per fish family
-# Group data by family, count entries, and drop groups post-summary.
-family_summary <- data %>% 
-  group_by(fish_family) %>% 
-  summarise(n = n(), .groups = "drop")
+# --- Summarise counts per fish family ---
+family_summary <- data %>%
+  group_by(fish_family) %>%
+  summarise(
+    k = n(),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    proportion = k / sum(k),
+    percentage = proportion * 100,
+    family_label = str_to_title(fish_family),
+    label_pct = paste0("(", round(percentage, 1), "%)"),
+    label_x_inside = k * 0.5,
+    pct_x_position = k + max(k) * 0.15
+  )
 
-# Calculate proportion and percentage of total counts for each species.
-family_pct <- family_summary %>% 
-  mutate(proportion = n / sum(n), 
-         percentage = proportion * 100)
-
-# Create the bar plot
+# --- Plot ---
 family_effect_size_count_bar_plot <- family_summary %>%
-  ggplot(aes(x = n, y = reorder(str_to_title(fish_family), n))) + 
-  geom_bar(stat = "identity", width = 0.8, alpha = 0.5, fill = RColorBrewer::brewer.pal(n = 8, name = "Dark2")[2]) +
-  geom_text(aes(label = ifelse(n < 9, "", n), x = n / 2, y = reorder(str_to_title(fish_family), n)), hjust = 0.5, size = 5, color = "black") +
-  geom_text(data = family_pct, aes(label = paste0("(", round(percentage, 1), "%)"), x = n), 
-            hjust = -0.1, size = 6, color = "black", fontface = "bold") +
-  scale_x_continuous(expand = c(0, 0), limits = c(0, max(family_summary$n) * 1.2)) +
-  theme_bw() +
-  guides(size = "none") +
-  theme(legend.position = "none",
-        axis.text = element_text(size = 12,color = "black"),
-        axis.title = element_text(size = 12,face = "bold", color = "black"),
-        plot.caption = element_text(size = 12, color = "gray10", face = "italic")) +
-  labs(caption = "The value in each bar is the total number of effect sizes",
-       x = "Total number of effect size estimates",
-       y = "Fish families")
+  ggplot(aes(x = k, y = reorder(family_label, k))) +
+  
+  geom_col(
+    width = 0.8,
+    alpha = 0.7,
+    fill = "#8FBCE6",
+    color = "black",
+    linewidth = 0.3
+  ) +
+  
+  # Print k inside bar
+  geom_text(
+    aes(x = label_x_inside, label = k),
+    size = 4,
+    color = "black"
+  ) +
+  
+  # Print percentage outside
+  geom_text(
+    aes(x = pct_x_position, label = label_pct),
+    size = 4,
+    fontface = "bold",
+    color = "black"
+  ) +
+  
+  scale_x_continuous(
+    expand = c(0, 0),
+    limits = c(0, max(family_summary$k) * 1.35)
+  ) +
+  
+  theme_pub_large +
+  theme(
+    legend.position = "none"
+  ) +
+  
+  labs(
+    x = "Total number of effect size estimates (k)",
+    y = "Fish families")
 
+family_effect_size_count_bar_plot
 
-print(family_effect_size_count_bar_plot)
+#ggsave(filename = here::here("figures", "Figures2_summary_family.pdf"), plot = family_effect_size_count_bar_plot, device = cairo_pdf, width = 120, height = 70, units = "mm", scale = 2, dpi = 800)
 
-ggsave("family_effectsize_bubble.png", family_effect_size_count_bar_plot,
-       width = 9, height = 5, units = "in", dpi = 300)
-
+#ggsave(filename = here::here("figures", "Figures2_summary_family.jpg"), plot = family_effect_size_count_bar_plot, width = 120, height = 70, units = "mm", scale = 2, dpi = 800)
 ```
 
 
 # A bubble plot showing the number of effect sizes of each immune trait
 ```{r}
 ## A bar chart showing the total number of effect sizes per immune trait
-# Group data by immune trait, count entries, and drop groups post-summary.
-immune_summary <- data %>% 
-  group_by(immune_category_high) %>% 
-  summarise(n = n(), .groups = "drop")
+# --- Summarise counts per immune trait ---
+immune_summary <- data %>%
+  group_by(immune_category_high) %>%
+  summarise(
+    k = n(),                          # number of effect sizes
+    studies = n_distinct(study_id),   # number of studies
+    spp = n_distinct(species_latin),  # number of species
+    .groups = "drop"
+  ) %>%
+  mutate(
+    proportion = k / sum(k),
+    percentage = proportion * 100,
+    immune_label = str_to_title(immune_category_high),
+    label_in_bar = paste0("k=", k, "\nstudies=", studies, "\nspp=", spp),
+    label_pct = paste0("(", round(percentage, 1), "%)"),
+    
+    # Only move the k/studies/spp label outside for Cell-Mediated
+    is_cell = immune_label == "Cell-Mediated",
+    
+    # x positions
+    label_x_inside  = k * 0.5,
+    label_x_outside = k + max(k) * 0.03,
+    pct_x_position  = k + max(k) * 0.28
+  )
 
-# Calculate proportion and percentage of total counts for each species.
-immune_pct <- immune_summary %>% 
-  mutate(proportion = n / sum(n), 
-         percentage = proportion * 100)
-
-# Create the bar plot
+# --- Plot ---
 immune_effect_size_count_bar_plot <- immune_summary %>%
-  ggplot(aes(x = n, y = reorder(str_to_title(immune_category_high), n))) + 
-  geom_bar(stat = "identity", width = 0.8, alpha = 0.5, fill = RColorBrewer::brewer.pal(n = 8, name = "Dark2")[2]) +
-  geom_text(aes(label = ifelse(n < 9, "", n), x = n / 2, y = reorder(str_to_title(immune_category_high), n)), hjust = 0.5, size = 5, color = "black") +
-  geom_text(data = immune_pct, aes(label = paste0("(", round(percentage, 1), "%)"), x = n), 
-            hjust = -0.1, size = 6, color = "black", fontface = "bold") +
-  scale_x_continuous(expand = c(0, 0), limits = c(0, max(immune_summary$n) * 1.2)) +
-  theme_bw() +
-  guides(size = "none") +
-  theme(legend.position = "none",
-        axis.text = element_text(size = 12,color = "black"),
-        axis.title = element_text(size = 12,face = "bold", color = "black"),
-        plot.caption = element_text(size = 12, color = "gray10", face = "italic")) +
-  labs(caption = "The value in each bar is the total number of effect sizes",
-       x = "Total number of effect size estimates",
-       y = "Immune traits")
+  ggplot(aes(x = k, y = reorder(immune_label, k))) +
+  geom_col(
+    width = 0.8,
+    alpha = 0.7,
+    fill = "#8FBCE6",
+    color = "black",
+    linewidth = 0.3
+  ) +
+  
+  # Labels INSIDE (all except Cell-Mediated)
+  geom_text(
+    data = subset(immune_summary, !is_cell),
+    aes(x = label_x_inside, label = label_in_bar),
+    size = 3.6,
+    color = "black",
+    lineheight = 0.95
+  ) +
+  
+  # Label OUTSIDE only for Cell-Mediated
+  geom_text(
+    data = subset(immune_summary, is_cell),
+    aes(x = label_x_outside, label = label_in_bar),
+    hjust = 0,
+    size = 3.6,
+    color = "black"
+  ) +
+  
+  # Percentages (pushed further right)
+  geom_text(
+    aes(label = label_pct, x = pct_x_position),
+    size = 4,
+    fontface = "bold",
+    color = "black"
+  ) +
+  
+  scale_x_continuous(
+    expand = c(0, 0),
+    limits = c(0, max(immune_summary$k) * 1.45)
+  ) +
+  
+  theme_pub_large +
+  theme(
+    legend.position = "none"
+  ) +
+  
+  labs(
+    x = "Total number of effect size estimates (k)",
+    y = "Immune traits")
 
+immune_effect_size_count_bar_plot
 
-print(immune_effect_size_count_bar_plot)
+#ggsave(filename = here::here("figures", "Figures1_summary_immune.pdf"), plot = immune_effect_size_count_bar_plot, device = cairo_pdf, width = 120, height = 70, units = "mm", scale = 2, dpi = 800)
 
-ggsave("immune_effectsize_bubble.png", immune_effect_size_count_bar_plot,
-       width = 9, height = 5, units = "in", dpi = 300)
+#ggsave(filename = here::here("figures", "Figures1_summary_immune.jpg"), plot = immune_effect_size_count_bar_plot, width = 120, height = 70, units = "mm", scale = 2, dpi = 800)
 
 ```
 
@@ -266,38 +337,60 @@ print(immune_species_bubble_plot)
 
 # A bar chart showing the sex of fish used in the literature
 ```{r,fig.width=10, fig.height=5}
-# Group data by 'sex of fish' and count entries, then drop grouping for further analysis.
-sex_summary <- data %>% 
-  group_by(sex) %>% 
-  summarise(n = n(), .groups = "drop")
+# --- Summarise counts per fish sex ---
+sex_summary <- data %>%
+  group_by(sex) %>%
+  summarise(
+    k = n(),            # number of effect sizes (or rows)
+    .groups = "drop"
+  ) %>%
+  mutate(
+    sex_label = str_to_title(sex),
+    proportion = k / sum(k),
+    percentage = proportion * 100,
+    label_pct = paste0("(", round(percentage, 1), "%)"),
+    label_x_inside = k * 0.5,
+    pct_x_position = k + max(k) * 0.15
+  )
 
-# Calculate proportions and percentages of total studies for each sex.
-sex_pct <- sex_summary %>% 
-  mutate(proportion = n / sum(n),  
-         percentage = proportion * 100)
-
-# Create a bar plot visualizing the number of studies per sex, with annotations for counts and percentages.
+# --- Plot (publication style, consistent with other supplementary bar charts) ---
 fish_sex_study_count_bar_plot <- sex_summary %>%
-  ggplot(aes(x = n, y = reorder(str_to_title(sex), n))) + 
-  geom_bar(stat = "identity", width = 0.8, alpha = 0.5, fill = RColorBrewer::brewer.pal(n = 8, name = "Dark2")[2]) +
-  geom_text(aes(label = n, x = n / 2, y = reorder(str_to_title(sex), n)), hjust = 0.5, size = 4, color = "black") +
-  geom_text(data = sex_pct, aes(label = paste0("(", round(percentage, 1), "%)"), x = n), 
-            hjust = -0.1, size = 4, color = "black", fontface = "bold") +
-  scale_x_continuous(expand = c(0, 0), limits = c(0, max(sex_summary$n) * 1.2)) +
-  theme_bw() +
-  guides(size = "none") +
-  theme(legend.position = "none",
-        axis.text = element_text(color = "black"),
-        axis.title = element_text(face = "bold", color = "black"),
-        plot.caption = element_text(size = 10, color = "gray10", face = "italic")) +
-  labs(caption = "The value in each bar is the total number of studies",
-       x = "Total number of effect sizes",
-       y = "Sex of fish")
+  ggplot(aes(x = k, y = reorder(sex_label, k))) +
+  geom_col(
+    width = 0.8,
+    alpha = 0.7,
+    fill = "#8FBCE6",
+    color = "black",
+    linewidth = 0.3
+  ) +
+  # k inside bar
+  geom_text(
+    aes(x = label_x_inside, label = k),
+    size = 4,
+    color = "black"
+  ) +
+  # percentage outside bar
+  geom_text(
+    aes(x = pct_x_position, label = label_pct),
+    size = 4,
+    fontface = "bold",
+    color = "black"
+  ) +
+  scale_x_continuous(
+    expand = c(0, 0),
+    limits = c(0, max(sex_summary$k) * 1.35)
+  ) +
+  theme_pub_large +
+  theme(legend.position = "none") +
+  labs(
+    x = "Total number of effect sizes (k)",
+    y = "Sex of fish")
 
-print(fish_sex_study_count_bar_plot)
+fish_sex_study_count_bar_plot
 
-# ggsave(here("figures", "fish_sex_study_count_bar_plot.pdf"), width = 10, height = 5, units = "cm", scale = 2, dpi = 800)
-# ggsave(here("figures", "fish_sex_study_count_bar_plot.jpg"), width = 10, height = 5, units = "cm", scale = 2, dpi = 800)
+ggsave(filename = here::here("figures", "Figures3_sex_immune.pdf"), plot = fish_sex_study_count_bar_plot, device = cairo_pdf, width = 120, height = 70, units = "mm", scale = 2, dpi = 800)
+
+ggsave(filename = here::here("figures", "Figures3_sex_immune.jpg"), plot = fish_sex_study_count_bar_plot, width = 120, height = 70, units = "mm", scale = 2, dpi = 800)
 ```
 
 ## A bubble plot showing the number of effect sizes of each pharmaceutical per immune trait
