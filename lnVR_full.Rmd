@@ -88,6 +88,7 @@ effect_size_metrics_set <- data.frame(
 data <- cbind(data, effect_size_metrics_set)
 
 data <- subset(data, orientation != 0) #Remove immune traits with orientation "0"
+data$lnRR <- ifelse(data$orientation == "-1", -1 * data$lnRR, data$lnRR)
 
 # Select specific columns including the new precision columns
 effect_size_metrics_set_kable <- data[, which(colnames(data) %in% c(
@@ -174,6 +175,17 @@ data <- data[data$unique_name %in% phylo_branched$tip.label, ]  # Check that spe
 data$phylogeny <- data$unique_name  # Rename 'unique_name' to 'phylogeny' for the models
 
 ```
+
+```{r}
+## Variance covariance matrices
+# To account for the dependency of effect sizes estimates due to being in the same exposure group (cohort) we constructed a series of vcv matrices.
+
+#------------------------------lnRR------------------------------#
+data<- data[!is.na(data$lnRRv),] 
+lnRRVCV <- metafor::vcalc(vi = lnRRv, cluster = exposure_id, obs = assay_id, data = data, rho = 0.5)
+lnRRVCV <- lnRRVCV + diag(1e-5, nrow(lnRRVCV))
+```
+
 
 
 ```{r}
@@ -324,6 +336,26 @@ lnVR_percentage_change
 ## *Figure 2*
 #Impacts of pharmaceutical exposure on fish immune response. (B) shows the difference in variances between control and treatment groups, also on a logarithmic scale, where negative values suggest a reduction in the inter-individual variability of immune response. Shorter whiskers represent 95% confidence intervals, while longer whiskers indicate 95% prediction intervals. 'k' represents the number of effect sizes, and the number of studies is in brackets. Each circle corresponds to an effect size, with its size scaled according to precision (inverse sampling error variance).
 
+metric_colours <- list(
+  lnRR = "#BFD3E6",
+  lnVR = "#F7C9A9"
+)
+
+theme_pub_large <- theme_bw(base_size = 13) +
+  theme(
+    legend.position = "none",
+
+    axis.title = element_text(face = "bold", size = 14, color = "black"),
+    axis.text  = element_text(size = 13, color = "black"),
+
+    axis.ticks = element_line(color = "black", linewidth = 0.4),
+    axis.line  = element_line(color = "black", linewidth = 0.4),
+
+    panel.grid = element_blank(),
+    panel.border = element_rect(color = "black", linewidth = 0.5)
+  )
+
+
 # Figure 2
 intercept_only.lnVR_orchard <- orchaRd::orchard_plot(
   lnVR_intercept_only,
@@ -350,11 +382,50 @@ intercept_only.lnVR_orchard <- orchaRd::orchard_plot(
 intercept_only.lnVR_orchard
 
 
-#ggsave(here("figures", "figure2_overall_lnVR.pdf"), width = 12, height = 7, units = "cm", scale = 2, dpi = 800)
-#ggsave(here("figures", "figure2_overall_lnVR.jpg"), width = 12, height = 7, units = "cm", scale = 2, dpi = 800)
+ggsave(here("figures", "figure2_overall_lnVR.pdf"), width = 12, height = 7, units = "cm", scale = 2, dpi = 800)
+ggsave(here("figures", "figure2_overall_lnVR.jpg"), width = 12, height = 7, units = "cm", scale = 2, dpi = 800)
 
 
 ```
+
+```{r}
+lnRR_intercept_only <- rma.mv(yi = lnRR,
+                              V = lnRRVCV,
+                              random = list(~1 | study_id,
+                                            ~1 | assay_id,
+                                            ~1 | pharmaceutical,
+                                            ~1 | species_latin,
+                                            ~1 | phylogeny),
+                              method = "REML",
+                              test = "t", 
+                              data = data,
+                              sparse = T,
+                              R = list(phylogeny = phylo_matrix))
+
+intercept_only.lnRR_orchard <- orchaRd::orchard_plot(
+  lnRR_intercept_only,
+  group = "study_id",
+  xlab = "Log Response Ratio (lnRR)",
+  g = TRUE,
+  k.pos = "right",
+  colour = FALSE,
+  fill = TRUE,
+  trunk.size = 0.8,
+  legend.pos = "none",
+  branch.size = 1.5,
+  twig.size = 0.5
+) +
+  scale_fill_manual(values = metric_colours$lnRR) +
+  scale_x_discrete(labels = c("Model estimates")) +
+  theme_pub_large +
+  theme(
+    axis.title = element_text(face = "bold", size = 12, color = "black"),
+    axis.text  = element_text(size = 11, color = "black"),
+    axis.text.y = element_text(face = "bold", size = 13, color = "black", angle = 90, vjust = 0.5, hjust = 0.5),
+    panel.grid = element_blank()
+  )
+```
+
 
 ```{r}
 # Creating figure overall lnRR/lnVR
@@ -371,9 +442,10 @@ figure1_combined <-
     )
   )
 
+figure1_combined
 
-#ggsave(filename = here::here("figures", "Figure3_overall_lnRR_lnVR.pdf"), plot = figure1_combined, device = cairo_pdf, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
-#ggsave(filename = here::here("figures", "Figure3_overall_lnRR_lnVR.jpg"), plot = figure1_combined, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
+ggsave(filename = here::here("figures", "Figure_overall_lnRR_lnVR.pdf"), plot = figure1_combined, device = cairo_pdf, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
+ggsave(filename = here::here("figures", "Figure_overall_lnRR_lnVR.jpg"), plot = figure1_combined, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
 
 
 ```
@@ -456,7 +528,71 @@ immune_category_high_mod_orchard.lnVR$layers[[4]]$geom_params$linewidth <- 0.35
 
 immune_category_high_mod_orchard.lnVR
 
+
+
 ```
+
+```{r}
+lnRR_mod_immune_category_high <- rma.mv(yi = lnRR,
+                                   V = lnRRVCV,
+                                   random = list(~1 | study_id,
+                                                 ~1 | assay_id,
+                                                 ~1 | pharmaceutical,
+                                                 ~1 | species_latin,
+                                                 ~1 | phylogeny),
+                                   mods = ~immune_category_high -1,
+                                   method = "REML",
+                                   test = "t", 
+                                   data = data,
+                                   sparse = T,
+                                   R = list(phylogeny = phylo_matrix))
+
+pal_pastel_named <- c(
+  "WBC"          = "#8FBCE6",
+  "Humoral-mediated" = "#F7C9A9",
+  "Cytokines"    = "#D1B3E0",
+  "Cell-mediated"= "#9FD5C0"
+)
+
+
+# Figure 3 (lnRR ~ immune_category_high)
+
+immune_category_high_mod_orchard.lnRR <-
+  orchaRd::orchard_plot(
+    lnRR_mod_immune_category_high,
+    group = "study_id",
+    xlab  = "Log Response Ratio (lnRR)",
+    mod   = "immune_category_high",
+    g     = TRUE,
+    k.pos = "right",
+    colour = FALSE,
+    fill   = TRUE,
+    trunk.size  = 2.4,   # summary CI line
+    branch.size = 1.2,   # study CI lines
+    twig.size   = 0.8    # study dots
+  ) +
+  # Pastel fill (use named palette if possible)
+  scale_fill_manual(values = pal_pastel_named) +
+  # Reference line (no effect)
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black", linewidth = 0.4) +
+  # Apply the same publication theme
+  theme_pub_large +   # swap to theme_pub if single standalone figure
+  theme(
+    legend.position = "none",
+    panel.grid = element_blank(),
+    # Make category labels clear + black (and bold if you want)
+    axis.text.y = element_text(face = "bold", color = "black")
+  ) +
+  labs(title = NULL)
+
+# shrink the summary bubble and the PI line on the summary layer
+immune_category_high_mod_orchard.lnRR$layers[[4]]$geom_params$fatten    <- 1.7  # default is 4
+immune_category_high_mod_orchard.lnRR$layers[[4]]$geom_params$linewidth <- 0.35 # ggplot ≥3.4
+
+immune_category_high_mod_orchard.lnRR
+
+```
+
 
 ```{r}
 # Combine Figure 3A and 3B
@@ -472,9 +608,11 @@ figure3_AB <-
     )
   )
 
-#ggsave(filename = here::here("figures", "Figure4_immune_lnRR_lnVR.pdf"), plot = figure3_AB, device = cairo_pdf, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
+figure3_AB
 
-#ggsave(filename = here::here("figures", "Figure4_immune_lnRR_lnVR.jpg"), plot = figure3_AB, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
+ggsave(filename = here::here("figures", "Figure_immune_lnRR_lnVR.pdf"), plot = figure3_AB, device = cairo_pdf, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
+
+ggsave(filename = here::here("figures", "Figure_immune_lnRR_lnVR.jpg"), plot = figure3_AB, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
 ```
 
 
@@ -553,6 +691,60 @@ pharmaceutical_mod_orchard.lnVR$layers[[4]]$geom_params$linewidth <- 0.35
 
 pharmaceutical_mod_orchard.lnVR
 ```
+```{r}
+lnRR_mod_pharmaceutical <- rma.mv(yi = lnRR,
+                                  V = lnRRVCV,
+                                  random = list(~1 | study_id,
+                                                 ~1 | assay_id,
+                                                 ~1 | species_latin,
+                                                 ~1 | phylogeny,
+                                                 ~1 | pharmaceutical),
+                                  mods = ~pharmaceutical_class -1,
+                                  method = "REML",
+                                  test = "t", 
+                                  data = data,
+                                  sparse = T,
+                                  R = list(phylogeny = phylo_matrix))
+
+pharma_colours <- c(
+  "Antibiotic"       = "#D1B3E0",  # blue (WBC tone, consistent)
+  "Antidepressant"   = "#F7C9A9",  # orange
+  "Contraceptive"    = "#8FBCE6",  # purple
+  "Anti-inflammatory" = "#9FD5C0" # teal
+)
+
+# Build the orchard
+pharmaceutical_mod_orchard.lnRR <-
+  orchaRd::orchard_plot(
+    lnRR_mod_pharmaceutical,
+    group = "study_id",
+    xlab  = "Log Response Ratio (lnRR)",
+    mod   = "pharmaceutical_class",
+    g     = TRUE,
+    k.pos = "right",
+    colour = FALSE,
+    fill   = TRUE,
+    trunk.size  = 2.4,
+    branch.size = 1.2,
+    twig.size   = 0.8
+  ) +
+  scale_fill_manual(values = pharma_colours) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black", linewidth = 0.4) +
+  theme_pub_large +
+  theme(
+    legend.position = "none",
+    panel.grid = element_blank(),
+    axis.text.y = element_text(face = "bold", color = "black")
+  ) +
+  labs(title = NULL)
+
+# Shrink the big summary bubble (layer [[4]] is the summary pointrange)
+pharmaceutical_mod_orchard.lnRR$layers[[4]]$geom_params$fatten    <- 1.7 # default ~4
+
+# 5) (Optional) slim the CI lines (layers [[3]] & [[4]])
+pharmaceutical_mod_orchard.lnRR$layers[[3]]$geom_params$linewidth <- 0.35
+pharmaceutical_mod_orchard.lnRR$layers[[4]]$geom_params$linewidth <- 0.35
+```
 
 ```{r}
 #Combine Figure 4A and 4B
@@ -563,9 +755,11 @@ figure4_AB <-
     plot.tag = element_text(size = 18, face = "bold", color = "black")
   )
 
-#ggsave(filename = here::here("figures", "Figure4_immune_lnRR_lnVR.pdf"), plot = figure4_AB, device = cairo_pdf, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
+figure4_AB
 
-#ggsave(filename = here::here("figures", "Figure4_immune_lnRR_lnVR.jpg"), plot = figure4_AB, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
+ggsave(filename = here::here("figures", "Figure4_pharma_lnRR_lnVR.pdf"), plot = figure4_AB, device = cairo_pdf, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
+
+ggsave(filename = here::here("figures", "Figure4_pharma_lnRR_lnVR.jpg"), plot = figure4_AB, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
 
 ```
 
@@ -584,13 +778,13 @@ data_dosage_model <- data %>%
   mutate(dosage = as.numeric(dosage),
          dosage_unit = as.character(dosage_unit),
          dosage_unit_consistent = case_when(
-           dosage_unit == "mg/L" ~ "ug/L", 
-           dosage_unit == "ng/L" ~ "ug/L",
-           dosage_unit == "ppm" ~ "ug/L", 
+           dosage_unit == "mg/l" ~ "ug/l", 
+           dosage_unit == "ng/l" ~ "ug/l",
+           dosage_unit == "ppm" ~ "ug/l", 
            TRUE ~ dosage_unit),
          dosage_convert_ugL = case_when(
-           dosage_unit == "mg/L" ~ dosage * 1000,
-           dosage_unit == "ng/L" ~ dosage / 1000,
+           dosage_unit == "mg/l" ~ dosage * 1000,
+           dosage_unit == "ng/l" ~ dosage / 1000,
            dosage_unit == "ppm" ~ dosage*1000, 
            TRUE ~ dosage)) %>% 
   filter(!is.na(dosage_convert_ugL)) %>% 
@@ -692,7 +886,7 @@ r2_lnVR_duration
 ```
 
 ```{r}
-# Figure 5a)
+# Figure 5
 ## We illustrate the (c) moderating effects of dosage (ug/L, on a logarithmic scale) and (d) duration (hours) on the variability of immune response. The R2 values indicate the minimal variance explained by dosage and duration
 
 # Figure 5c)
@@ -728,37 +922,41 @@ duration_bubble_plot.lnVR
 ```{r}
 #Combine Figure 5C and 5D
 figure5_AB <-
-  (dosage_bubble_plot.lnRR | dosage_bubble_plot.lnVR) +
+ (dosage_bubble_plot.lnRR | dosage_bubble_plot.lnVR) +
   plot_annotation(
-    tag_levels = list(c("C", "D"))
+   tag_levels = list(c("C", "D"))
   ) &
   theme(
-    plot.tag = element_text(size = 18, face = "bold", color = "black")
+   plot.tag = element_text(size = 18, face = "bold", color = "black")
   )
 
-#ggsave(filename = here::here("figures", "Figure5_dosage_lnRR_lnVR.pdf"), plot = figure5_AB, device = cairo_pdf, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
+figure5_AB
 
-#ggsave(filename = here::here("figures", "Figure5_dosage_lnRR_lnVR.jpg"), plot = figure5_AB, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
+ggsave(filename = here::here("figures", "Figure5_dosage_lnRR_lnVR.pdf"), plot = figure5_AB, device = cairo_pdf, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
+
+ggsave(filename = here::here("figures", "Figure5_dosage_lnRR_lnVR.jpg"), plot = figure5_AB, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
 ```
 
 ```{r}
-#Combine Figure 6E and 6F
+# Combine Figure 6E and 6F
 figure6_CD <-
-  (duration_bubble_plot.lnRR | duration_bubble_plot.lnVR) +
-  plot_annotation(
-    tag_levels = list(c("E", "F"))
-  ) &
-  theme(
-    plot.tag = element_text(size = 18, face = "bold", color = "black")
-  )
+ (duration_bubble_plot.lnRR | duration_bubble_plot.lnVR) +
+plot_annotation(
+tag_levels = list(c("E", "F"))
+) &
+theme(
+plot.tag = element_text(size = 18, face = "bold", color = "black")
+)
 
-#ggsave(filename = here::here("figures", "Figure6_duration_lnRR_lnVR.pdf"), plot = figure6_CD, device = cairo_pdf, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
+figure6_CD
 
-#ggsave(filename = here::here("figures", "Figure6_duration_lnRR_lnVR.jpg"), plot = figure6_CD, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
+ggsave(filename = here::here("figures", "Figure6_duration_lnRR_lnVR.pdf"), plot = figure6_CD, device = cairo_pdf, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
+
+ggsave(filename = here::here("figures", "Figure6_duration_lnRR_lnVR.jpg"), plot = figure6_CD, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
 ```
 
 ```{r}
-#Combine Figures 4, 5 and 6
+# Combine Figures 4, 5 and 6
 
 fig4_keep_tags <- wrap_elements(full = figure4_AB)
 fig5_keep_tags <- wrap_elements(full = figure5_AB)
@@ -770,9 +968,11 @@ figure456_vertical <-
   fig6_keep_tags +
   plot_layout(ncol = 1)
 
-#ggsave(filename = here::here("figures", "Figure7_duration_dose_lnRR_lnVR.pdf"), plot = figure456_vertical, device = cairo_pdf, width = 180, height = 200, units = "mm", scale = 2, dpi = 800)
+figure456_vertical
 
-#ggsave(filename = here::here("figures", "Figure7_duration_dose_lnRR_lnVR.jpg"), plot = figure456_vertical, width = 180, height = 200, units = "mm", scale = 2, dpi = 800)
+ggsave(filename = here::here("figures", "Figure7_duration_dose_lnRR_lnVR.pdf"), plot = figure456_vertical, device = cairo_pdf, width = 180, height = 200, units = "mm", scale = 2, dpi = 800)
+
+ggsave(filename = here::here("figures", "Figure7_duration_dose_lnRR_lnVR.jpg"), plot = figure456_vertical, width = 180, height = 200, units = "mm", scale = 2, dpi = 800)
 ```
 
 
@@ -807,6 +1007,12 @@ r2_ml(lnVR_mod_sex)
 
 ```{r}
 # Figure 6
+pal_sex <- c(
+  "Not reported" = "#9FD5C0",  # light grey (neutral)
+  "Mixed"        = "#8FBCE6",  # blue (same as WBC tone for consistency)
+  "Male"         = "#F7C9A9"   # orange (balanced contrast)
+)
+
 
 lnVR_mod_sex_figure <-
   orchaRd::orchard_plot(
@@ -841,17 +1047,17 @@ lnVR_mod_sex_figure
 ```{r}
 # Combine lnRR (A) and lnVR (B)
 figure_sex_AB <-
-  (sex_mod_orchard.lnRR | lnVR_mod_sex_figure) +
-  plot_annotation(tag_levels = "A") &
-  theme(
-    plot.tag = element_text(size = 18, face = "bold", color = "black")
-  )
+(sex_mod_orchard.lnRR | lnVR_mod_sex_figure) +
+plot_annotation(tag_levels = "A") &
+theme(
+plot.tag = element_text(size = 18, face = "bold", color = "black")
+)
 
 figure_sex_AB
 
-#ggsave(filename = here::here("figures", "Figure8_sex_lnRR_lnVR.pdf"), plot = figure_sex_AB, device = cairo_pdf, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
+ggsave(filename = here::here("figures", "Figure8_sex_lnRR_lnVR.pdf"), plot = figure_sex_AB, device = cairo_pdf, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
 
-#ggsave(filename = here::here("figures", "Figure8_sex_lnRR_lnVR.jpg"), plot = figure_sex_AB, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
+ggsave(filename = here::here("figures", "Figure8_sex_lnRR_lnVR.jpg"), plot = figure_sex_AB, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
 
 ```
 
@@ -903,6 +1109,11 @@ r2_ml(lnVR_mod_age)
 
 ```{r}
 # Figure
+pal_age <- c(
+  "Not reported"     = "#9FD5C0",  # neutral grey
+  "Early_life_stage" = "#8FBCE6",  # blue
+  "Adult"            = "#F7C9A9"   # orange
+)
 
 age_mod_orchard.lnVR <-
   orchaRd::orchard_plot(
@@ -939,21 +1150,22 @@ age_mod_orchard.lnVR
 
 ```{r}
 figure_age_CD <-
-  (age_mod_orchard.lnRR | age_mod_orchard.lnVR) +
-  plot_annotation(
-    tag_levels = list(c("C", "D"))
-  ) &
-  theme(
-    plot.tag = element_text(
-      size = 18,
-      face = "bold",
-      color = "black"
-    )
-  )
+(age_mod_orchard.lnRR | age_mod_orchard.lnVR) +
+plot_annotation(
+tag_levels = list(c("C", "D"))
+) &
+theme(
+plot.tag = element_text(
+size = 18,
+face = "bold",
+color = "black"
+))
 
-#ggsave(filename = here::here("figures", "Figure9_age_lnRR_lnVR.pdf"), plot = figure_age_CD, device = cairo_pdf, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
+figure_age_CD
 
-#ggsave(filename = here::here("figures", "Figure9_age_lnRR_lnVR.jpg"), plot = figure_age_CD, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
+ggsave(filename = here::here("figures", "Figure9_age_lnRR_lnVR.pdf"), plot = figure_age_CD, device = cairo_pdf, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
+
+ggsave(filename = here::here("figures", "Figure9_age_lnRR_lnVR.jpg"), plot = figure_age_CD, width = 180, height = 70, units = "mm", scale = 2, dpi = 800)
 
 #Combine A,B,C,D - Figure 10
 fig8_keep_tags <- wrap_elements(full = figure_sex_AB)
@@ -964,6 +1176,8 @@ figure10_vertical <-
   fig8_keep_tags /
   fig9_keep_tags +
   plot_layout(ncol = 1)
+
+figure10_vertical
 
 ggsave(filename = here::here("figures", "Figure10_sex_age_lnRR_lnVR.pdf"), plot = figure10_vertical, device = cairo_pdf, width = 180, height = 150, units = "mm", scale = 2, dpi = 800)
 

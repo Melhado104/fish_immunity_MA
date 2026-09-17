@@ -409,8 +409,8 @@ intercept_only.lnRR_orchard <- orchaRd::orchard_plot(
 # Display
 intercept_only.lnRR_orchard
 
-#ggsave(here("figures", "figure1_overall_lnRR.pdf"), width = 12, height = 7, units = "cm", scale = 2, dpi = 800)
-#ggsave(here("figures", "figure1_overall_lnRR.jpg"), width = 12, height = 7, units = "cm", scale = 2, dpi = 800)
+ggsave(here("figures", "figure1_overall_lnRR.pdf"), width = 12, height = 7, units = "cm", scale = 2, dpi = 800)
+ggsave(here("figures", "figure1_overall_lnRR.jpg"), width = 12, height = 7, units = "cm", scale = 2, dpi = 800)
 
 
 ```
@@ -504,6 +504,10 @@ immune_category_high_mod_orchard.lnRR$layers[[4]]$geom_params$linewidth <- 0.35 
 
 immune_category_high_mod_orchard.lnRR
 
+ggsave(here("figures", "figure2_immune_lnRR.pdf"), width = 12, height = 7, units = "cm", scale = 2, dpi = 800)
+ggsave(here("figures", "figure2_immune_lnRR.jpg"), width = 12, height = 7, units = "cm", scale = 2, dpi = 800)
+
+
 ```
 
 
@@ -580,6 +584,10 @@ pharmaceutical_mod_orchard.lnRR$layers[[4]]$geom_params$linewidth <- 0.35
 
 pharmaceutical_mod_orchard.lnRR
 
+
+ggsave(here("figures", "figure4_pharma_lnRR.pdf"), width = 12, height = 7, units = "cm", scale = 2, dpi = 800)
+ggsave(here("figures", "figure4_pharma_lnRR.jpg"), width = 12, height = 7, units = "cm", scale = 2, dpi = 800)
+
 ```
 
 
@@ -594,13 +602,13 @@ data_dosage <- data %>%
   mutate(dosage = as.numeric(dosage),
          dosage_unit = as.character(dosage_unit),
          dosage_unit_consistent = case_when(
-           dosage_unit == "mg/L" ~ "ug/L", 
-           dosage_unit == "ng/L" ~ "ug/L",
-           dosage_unit == "ppm" ~ "ug/L", 
+           dosage_unit == "mg/l" ~ "ug/l", 
+           dosage_unit == "ng/l" ~ "ug/l",
+           dosage_unit == "ppm" ~ "ug/l", 
            TRUE ~ dosage_unit),
          dosage_convert_ugL = case_when(
-           dosage_unit == "mg/L" ~ dosage * 1000,
-           dosage_unit == "ng/L" ~ dosage / 1000,
+           dosage_unit == "mg/l" ~ dosage * 1000,
+           dosage_unit == "ng/l" ~ dosage / 1000,
            dosage_unit == "ppm" ~ dosage*1000, 
            TRUE ~ dosage)) %>% 
    filter(!is.na(dosage_convert_ugL)) %>% 
@@ -669,11 +677,7 @@ p_log <- ggplot(filtered_data_dosage, aes(x = "", y = dosage_convert_ugL)) +
     labels = scales::label_number()
   ) +
   labs(
-    x = NULL,
-    caption = paste0("Median = ", signif(med, 3),
-      ", Q1 = ", signif(q1, 3),
-      ", Q3 = ", signif(q3, 3))
-  ) +
+    x = NULL) +
   theme_classic(base_size = 13) +
   theme(
     plot.caption.position = "plot",
@@ -684,6 +688,8 @@ p_log <- ggplot(filtered_data_dosage, aes(x = "", y = dosage_convert_ugL)) +
   )
 p_log
 
+ggsave(here("figures", "figure_dosage.pdf"), width = 12, height = 7, units = "cm", scale = 2, dpi = 800)
+ggsave(here("figures", "figure_dosage.jpg"), width = 12, height = 7, units = "cm", scale = 2, dpi = 800)
 
 ```
 
@@ -723,7 +729,7 @@ duration_violin_plot <- ggplot(data_duration, aes(y = duration_unit_consistent, 
   geom_violin(fill = RColorBrewer::brewer.pal(n = 8, name = "Set2")[1], alpha = 0.4, color = NA, trim = FALSE) +
   geom_boxplot(width = 0.1, fill = "white", color = RColorBrewer::brewer.pal(n = 8, name = "Set2")[2], outlier.shape = NA) +
   geom_jitter(width = 0.3, height = 0.09, color = RColorBrewer::brewer.pal(n = 8, name = "Set2")[1], alpha = 0.8) +
-  theme_bw() +
+  theme_classic() +
   theme(legend.position = "none",
         plot.title = element_text(face = "bold", hjust = 0.5),
         axis.title.x = element_blank(),
@@ -735,6 +741,9 @@ duration_violin_plot <- ggplot(data_duration, aes(y = duration_unit_consistent, 
   labs(caption = "", y = "Duration [hours]")
 
 print(duration_violin_plot)
+
+ggsave(here("figures", "figure_duration.pdf"), width = 12, height = 7, units = "cm", scale = 2, dpi = 800)
+ggsave(here("figures", "figure_duration.jpg"), width = 12, height = 7, units = "cm", scale = 2, dpi = 800)
 ```
 
 
@@ -788,6 +797,12 @@ dosage_bubble_plot.lnRR <- bubble_plot(dosage_mod_lnRR_results, mod = "log_dosag
 
 dosage_bubble_plot.lnRR
 
+ggsave(here("figures", "figure_dosage_bubble.pdf"), width = 12, height = 7, units = "cm", scale = 2, dpi = 800)
+ggsave(here("figures", "figure_dosage_bubble.jpg"), width = 12, height = 7, units = "cm", scale = 2, dpi = 800)
+
+```
+
+```{r}
 # Figure 5b)
 duration_bubble_plot.lnRR <- bubble_plot(duration_mod_lnRR_results, mod = "duration_convert", group = "study_id", x = "duration_convert",
                                          y = "lnRR", est.lwd = 1, legend.pos = "bottom.right", k.pos = "bottom.left",
@@ -801,8 +816,10 @@ duration_bubble_plot.lnRR <- bubble_plot(duration_mod_lnRR_results, mod = "durat
   xlab("Duration (hours)")
 
 duration_bubble_plot.lnRR
-```
 
+ggsave(here("figures", "figure_duration_bubble.pdf"), width = 12, height = 7, units = "cm", scale = 2, dpi = 800)
+ggsave(here("figures", "figure_duration_bubble.jpg"), width = 12, height = 7, units = "cm", scale = 2, dpi = 800)
+```
 
 
 ```{r}
@@ -872,6 +889,10 @@ sex_mod_orchard.lnRR$layers[[4]]$geom_params$fatten    <- 1.7
 sex_mod_orchard.lnRR$layers[[4]]$geom_params$linewidth <- 0.35
 
 sex_mod_orchard.lnRR
+
+ggsave(here("figures", "figure_sex.pdf"), width = 12, height = 7, units = "cm", scale = 2, dpi = 800)
+ggsave(here("figures", "figure_sex.jpg"), width = 12, height = 7, units = "cm", scale = 2, dpi = 800)
+
 ```
 
 
@@ -953,4 +974,7 @@ age_mod_orchard.lnRR$layers[[4]]$geom_params$fatten    <- 1.7
 age_mod_orchard.lnRR$layers[[4]]$geom_params$linewidth <- 0.35
 
 age_mod_orchard.lnRR
+
+ggsave(here("figures", "figure_age.pdf"), width = 12, height = 7, units = "cm", scale = 2, dpi = 800)
+ggsave(here("figures", "figure_age.jpg"), width = 12, height = 7, units = "cm", scale = 2, dpi = 800)
 ```

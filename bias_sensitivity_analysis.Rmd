@@ -176,10 +176,14 @@ funnel_fig <- funnel(
   bg = "black"     
 )
 
-# fig_funnel <- recordPlot()
-# invisible(dev.off())
+#fig_funnel <- recordPlot()
+#invisible(dev.off())
 
 print(funnel_fig)
+
+ggsave(here("figures", "figure_funnel.pdf"), width = 12, height = 7, units = "cm", scale = 2, dpi = 800)
+ggsave(here("figures", "figure_funnel.jpg"), width = 12, height = 7, units = "cm", scale = 2, dpi = 800)
+
 ```
 
 ```{r}
@@ -207,6 +211,9 @@ trimfill_model <- rma(yi = lnRR,
 tf <- trimfill(trimfill_model)
 summary(tf)
 funnel(tf)
+
+ggsave(here("figures", "figure_eggers_regression.pdf"), width = 12, height = 7, units = "cm", scale = 2, dpi = 800)
+ggsave(here("figures", "figure_eggers_regression.jpg"), width = 12, height = 7, units = "cm", scale = 2, dpi = 800)
 
 ```
 
@@ -247,6 +254,9 @@ egger_fig <- ggplot(data, aes(x = sqrt(lnRRv), y = lnRR)) +
   )
 
 print(egger_fig)
+
+ggsave(here("figures", "figure_egger.pdf"), width = 12, height = 7, units = "cm", scale = 2, dpi = 800)
+ggsave(here("figures", "figure_egger.jpg"), width = 12, height = 7, units = "cm", scale = 2, dpi = 800)
 
 ```
 
@@ -299,7 +309,8 @@ time_lag_bias <- bubble_plot(
   ci.col = "red",
   pi.col = "black",
   est.col = "black",
-  g = TRUE
+  g = FALSE,
+  k = FALSE
 ) +
   annotate(
     geom = "text",
@@ -325,6 +336,9 @@ time_lag_bias <- bubble_plot(
   scale_x_continuous(limits = c(min_year, max(data$year, na.rm = TRUE)))
 
 print(time_lag_bias)
+
+ggsave(here("figures", "figure_lag_bias.pdf"), width = 12, height = 7, units = "cm", scale = 2, dpi = 800)
+ggsave(here("figures", "figure_lag_bias.jpg"), width = 12, height = 7, units = "cm", scale = 2, dpi = 800)
 
 ```
 
@@ -442,6 +456,20 @@ loo_status %>%
   kable() %>%
   kable_styling("striped", position = "left")
 
+theme_pub_large <- theme_bw(base_size = 13) +
+  theme(
+    legend.position = "none",
+
+    axis.title = element_text(face = "bold", size = 14, color = "black"),
+    axis.text  = element_text(size = 13, color = "black"),
+
+    axis.ticks = element_line(color = "black", linewidth = 0.4),
+    axis.line  = element_line(color = "black", linewidth = 0.4),
+
+    panel.grid = element_blank(),
+    panel.border = element_rect(color = "black", linewidth = 0.5)
+  )
+
 # Plot (consistent style)
 leave_one_study_out_lnRR_forest_plot <- ggplot(
   results.leave_study_out_model_lnRR,
@@ -466,7 +494,7 @@ leave_one_study_out_lnRR_forest_plot <- ggplot(
 
 print(leave_one_study_out_lnRR_forest_plot)
 
-#ggsave(filename = here::here("figures", "Figures4_leave_one_study_out_lnRR.jpg"), plot = leave_one_study_out_lnRR_forest_plot, width = 120, height = 90, units = "mm", scale = 2, dpi = 800)
+ggsave(filename = here::here("figures", "Figures4_leave_one_study_out_lnRR.jpg"), plot = leave_one_study_out_lnRR_forest_plot, width = 120, height = 90, units = "mm", scale = 2, dpi = 800)
 
 ```
 
@@ -598,7 +626,7 @@ leave_one_study_out_lnVR_forest_plot <- ggplot(
 
 print(leave_one_study_out_lnVR_forest_plot)
 
-#ggsave(filename = here::here("figures", "Figures5_leave_one_study_out_lnR.jpg"), plot = leave_one_study_out_lnVR_forest_plot, width = 120, height = 90, units = "mm", scale = 2, dpi = 800)
+ggsave(filename = here::here("figures", "Figures5_leave_one_study_out_lnR.jpg"), plot = leave_one_study_out_lnVR_forest_plot, width = 120, height = 90, units = "mm", scale = 2, dpi = 800)
 ```
 
 
@@ -741,7 +769,7 @@ leave_one_species_out_lnRR_forest_plot <- ggplot(
 
 print(leave_one_species_out_lnRR_forest_plot)
 
-#ggsave(filename = here::here("figures", "Figures6_leave_one_species_out_lnRR.jpg"), plot = leave_one_species_out_lnRR_forest_plot, width = 120, height = 90, units = "mm", scale = 2, dpi = 800)
+ggsave(filename = here::here("figures", "Figures6_leave_one_species_out_lnRR.jpg"), plot = leave_one_species_out_lnRR_forest_plot, width = 120, height = 90, units = "mm", scale = 2, dpi = 800)
 
 
 # Summarise mean coefficients across the leave-one-out fits (optional)
@@ -830,7 +858,7 @@ leave_one_species_out_lnVR_forest_plot <- ggplot(
 
 print(leave_one_species_out_lnVR_forest_plot)
 
-#ggsave(filename = here::here("figures", "Figures7_leave_one_species_out_lnVR.jpg"), plot = leave_one_species_out_lnVR_forest_plot, width = 120, height = 90, units = "mm", scale = 2, dpi = 800)
+ggsave(filename = here::here("figures", "Figures7_leave_one_species_out_lnVR.jpg"), plot = leave_one_species_out_lnVR_forest_plot, width = 120, height = 90, units = "mm", scale = 2, dpi = 800)
 
 results.leave_species_out_model_lnVR %>% 
   summarise(estimate = mean(Estimate), 
@@ -906,7 +934,7 @@ leave_one_pharmaceutical_class_out_lnRR_forest_plot <- ggplot(results.leave_phar
 
 print(leave_one_pharmaceutical_class_out_lnRR_forest_plot)
 
-#ggsave(filename = here::here("figures", "Figures8_leave_one_pharma_out_lnRR.jpg"), plot = leave_one_pharmaceutical_class_out_lnRR_forest_plot, width = 120, height = 90, units = "mm", scale = 2, dpi = 800)
+ggsave(filename = here::here("figures", "Figures8_leave_one_pharma_out_lnRR.jpg"), plot = leave_one_pharmaceutical_class_out_lnRR_forest_plot, width = 120, height = 90, units = "mm", scale = 2, dpi = 800)
 
 
 results.leave_pharmaceutical_class_out_model_lnRR %>% 

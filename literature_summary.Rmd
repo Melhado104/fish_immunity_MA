@@ -9,7 +9,7 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## *Load packages*
+## Load packages
 ```{r}
 rm(list = ls())
 
@@ -29,7 +29,7 @@ pacman::p_load(tidyverse,
 
 ```
 
-## *Load Data*
+## Load Data
 ```{r}
 data <- read_csv(here("data", "data_pharma_immune.csv"), skip = 0)
 
@@ -51,7 +51,7 @@ kable(summary(data), "html") %>%
     scroll_box(width = "250%", height = "500px")
 ```
 
-# **Data exploration and reporting of methodological items**
+# Data exploration and reporting of methodological items
 # A bubble plot showing the number of effect sizes of each pharmaceutical_class_class class per immune trait
 ```{r,fig.width=8, fig.height=13}
 # Summarize data by grouping on pharmaceutical_class and immune trait measured, then count entries.
@@ -98,7 +98,8 @@ immune_pharmaceutical_class_bubble_plot <- pc_cb_summary_filtered %>%
   labs(x = "Immune trait",
     y = "Pharmaceutical class")
 
-#ggsave("immune_pharma_bubble.png", immune_pharmaceutical_class_bubble_plot, width = 9, height = 5, units = "in", dpi = 300)
+ggsave(here("figures", "figure_immune_pharma_bubble.pdf"), width = 12, height = 7, units = "cm", scale = 2, dpi = 800)
+ggsave(here("figures", "figure_immune_pharma_bubble.jpg"), width = 12, height = 7, units = "cm", scale = 2, dpi = 800)
 
 
 ## A bar chart showing the total number of effect sizes per species
@@ -138,6 +139,20 @@ print(species_effect_size_count_bar_plot)
 
 # A bubble plot showing the number of effect sizes of each fish family
 ```{r}
+theme_pub_large <- theme_bw(base_size = 13) +
+  theme(
+    legend.position = "none",
+
+    axis.title = element_text(face = "bold", size = 14, color = "black"),
+    axis.text  = element_text(size = 13, color = "black"),
+
+    axis.ticks = element_line(color = "black", linewidth = 0.4),
+    axis.line  = element_line(color = "black", linewidth = 0.4),
+
+    panel.grid = element_blank(),
+    panel.border = element_rect(color = "black", linewidth = 0.5)
+  )
+
 # --- Summarise counts per fish family ---
 family_summary <- data %>%
   group_by(fish_family) %>%
@@ -197,9 +212,9 @@ family_effect_size_count_bar_plot <- family_summary %>%
 
 family_effect_size_count_bar_plot
 
-#ggsave(filename = here::here("figures", "Figures2_summary_family.pdf"), plot = family_effect_size_count_bar_plot, device = cairo_pdf, width = 120, height = 70, units = "mm", scale = 2, dpi = 800)
+ggsave(filename = here::here("figures", "Figures_summary_family.pdf"), plot = family_effect_size_count_bar_plot, device = cairo_pdf, width = 120, height = 70, units = "mm", scale = 2, dpi = 800)
 
-#ggsave(filename = here::here("figures", "Figures2_summary_family.jpg"), plot = family_effect_size_count_bar_plot, width = 120, height = 70, units = "mm", scale = 2, dpi = 800)
+ggsave(filename = here::here("figures", "Figures_summary_family.jpg"), plot = family_effect_size_count_bar_plot, width = 120, height = 70, units = "mm", scale = 2, dpi = 800)
 ```
 
 
@@ -284,9 +299,9 @@ immune_effect_size_count_bar_plot <- immune_summary %>%
 
 immune_effect_size_count_bar_plot
 
-#ggsave(filename = here::here("figures", "Figures1_summary_immune.pdf"), plot = immune_effect_size_count_bar_plot, device = cairo_pdf, width = 120, height = 70, units = "mm", scale = 2, dpi = 800)
+ggsave(filename = here::here("figures", "Figures_summary_immune.pdf"), plot = immune_effect_size_count_bar_plot, device = cairo_pdf, width = 120, height = 70, units = "mm", scale = 2, dpi = 800)
 
-#ggsave(filename = here::here("figures", "Figures1_summary_immune.jpg"), plot = immune_effect_size_count_bar_plot, width = 120, height = 70, units = "mm", scale = 2, dpi = 800)
+ggsave(filename = here::here("figures", "Figures_summary_immune.jpg"), plot = immune_effect_size_count_bar_plot, width = 120, height = 70, units = "mm", scale = 2, dpi = 800)
 
 ```
 
@@ -330,8 +345,8 @@ theme(legend.position = "none",
 
 print(immune_species_bubble_plot)
 
-# ggsave(here("figures", "immune_species_bubble_plot.pdf"), width = 8, height = 6, units = "cm", scale = 2, dpi = 800)
-# ggsave(here("figures", "immune_species_bubble_plot.jpg"), width = 8, height = 6, units = "cm", scale = 2, dpi = 800)
+ggsave(here("figures", "immune_species_bubble_plot.pdf"), width = 8, height = 6, units = "cm", scale = 2, dpi = 800)
+ggsave(here("figures", "immune_species_bubble_plot.jpg"), width = 8, height = 6, units = "cm", scale = 2, dpi = 800)
 ```
 
 
@@ -432,8 +447,9 @@ theme(legend.position = "none",
 
 print(immune_pharmaceutical_bubble_plot)
 
-# ggsave(here("figures", "immune_pharmaceutical_bubble_plot.pdf"), width = 8, height = 12, units = "cm", scale = 2, dpi = 800)
-# ggsave(here("figures", "immune_pharmaceutical_bubble_plot.jpg"), width = 8, height = 12, units = "cm", scale = 2, dpi = 800)
+ggsave(here("figures", "immune_pharmaceutical_bubble_plot.pdf"), width = 8, height = 12, units = "cm", scale = 2, dpi = 800)
+ggsave(here("figures", "immune_pharmaceutical_bubble_plot.jpg"), width = 8, height = 12, units = "cm", scale = 2, dpi = 800)
+
 ```
 
 # Visual representation of the characteristics of the primary studies included in the dataset. The vertical bars indicate key categorical variables. The widths of the vertical bars indicate the numbers of effect sizes represented by each level of the categorical variable. The flow lines between vertical bars indicate the connections and overlaps of different levels of the categorical variables. 
