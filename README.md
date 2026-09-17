@@ -32,4 +32,4 @@ Figure generation
 
 ## Figures
 This directory stores all figures generated in the manuscript and supplementary materials.
-Figures are saved in high-resolution formats (PDF and PNG/JPEG) suitable for publication.
+Figures are saved in high-resolution format suitable for publication.
